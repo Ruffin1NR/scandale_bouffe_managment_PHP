@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="fr" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nouveau vendeur - Scandale Bouffe</title>
+    <link rel="preconnect" href="https://fonts.bunny.net">
+    <link href="https://fonts.bunny.net/css?family=instrument+sans:400,500,600,700&display=swap" rel="stylesheet" />
+
+    <!-- Styles (Tailwind CSS - comme la version Laravel) -->
+    <link rel="stylesheet" href="<?php echo url('css/tailwind.css'); ?>">
+    <link rel="stylesheet" href="<?php echo url('css/styles.css'); ?>">
+</head>
+<body class="min-h-screen bg-gradient-to-b from-[#FDFDFC] to-[#0a0a0a] text-[#1b1b18]">
+
+    <?php require __DIR__ . '/../../auth/check.php'; ?>
+    <?php require __DIR__ . '/../partials/toast.php'; ?>
+
+    <nav class="border-b border-[#e3e3e0] dark:border-[#3E3E3A] bg-[#FDFDFC] dark:bg-[#0a0a0a]">
+        <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div class="flex h-16 items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <img src="https://scandalebouffe.netlify.app/images/scandale_logo.jpg" alt="Scandale Bouffe" class="h-9 w-9 rounded-lg object-cover">
+                    <a href="<?php echo url('dashboard'); ?>" class="text-lg font-semibold text-[#8B4513]">Scandale Bouffe</a>
+                </div>
+                <div class="hidden sm:flex items-center gap-6">
+                    <a href="<?php echo url('inventory'); ?>" class="text-sm font-medium text-[#706f6c] hover:text-[#8B4513] dark:text-[#A1A09A] dark:hover:text-[#FDFDFC]">Inventaire</a>
+                    <a href="<?php echo url('vendeurs'); ?>" class="text-sm font-semibold text-[#8B4513] border-b-2 border-[#8B4513] pb-1">Vendeurs</a>
+                    <a href="<?php echo url('sales'); ?>" class="text-sm font-medium text-[#706f6c] hover:text-[#8B4513] dark:text-[#A1A09A] dark:hover:text-[#FDFDFC]">Ventes</a>
+                    <a href="<?php echo url('dashboard'); ?>" class="text-sm font-medium text-[#706f6c] hover:text-[#8B4513] dark:text-[#A1A09A] dark:hover:text-[#FDFDFC]">Dashboard</a>
+                    <a href="<?php echo url('profile'); ?>" class="text-sm font-medium text-[#706f6c] hover:text-[#8B4513] dark:text-[#A1A09A] dark:hover:text-[#FDFDFC]">Profil</a>
+                    <form method="POST" action="<?php echo url('logout'); ?>" class="inline">
+                        <button type="submit" class="text-sm font-medium text-[#706f6c] hover:text-red-600 dark:text-[#A1A09A] dark:hover:text-red-400">Déconnexion</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div class="max-w-md mx-auto">
+            <div class="rounded-lg border border-[#e3e3e0] bg-[#FDFDFC] dark:border-[#3E3E3A] dark:bg-[#0a0a0a] shadow-card p-6">
+                <h2 class="mb-6 text-2xl font-semibold text-[#1b1b18] dark:text-[#FDFDFC]">
+                    Nouveau vendeur
+                </h2>
+
+                <form action="<?php echo url('vendeurs/create'); ?>" method="POST" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-[#706f6c] dark:text-[#A1A09A] mb-2">Nom</label>
+                        <input type="text" name="name" required
+                            class="w-full input-field"
+                            placeholder="Nom du vendeur">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-[#706f6c] dark:text-[#A1A09A] mb-2">Email</label>
+                        <input type="email" name="email" required
+                            class="w-full input-field"
+                            placeholder="vendeur@exemple.com">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-[#706f6c] dark:text-[#A1A09A] mb-2">Mot de passe</label>
+                        <input type="password" name="password" required
+                            class="w-full input-field"
+                            placeholder="password">
+                    </div>
+
+                    <button type="submit"
+                        class="w-full rounded-lg bg-[#8B4513] py-2 px-4 text-sm font-medium text-[#FDFDFC] hover:bg-[#A0522D] transition-colors">
+                        Créer le vendeur
+                    </button>
+
+                    <a href="<?php echo url('vendeurs'); ?>"
+                       class="mt-2 block text-sm text-[#8B4513] hover:underline">
+                        Annuler
+                    </a>
+                </form>
+            </div>
+        </div>
+    </main>
+
+<footer class="border-t border-[#e3e3e0] dark:border-[#3E3E3A] mt-12 py-6">
+    <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 text-center">
+        <p class="text-xs text-[#706f6c] dark:text-[#A1A09A]">&copy; <?php echo date('Y'); ?> Scandale Bouffe &mdash; Antsenakely, Antsirabe, Madagascar</p>
+    </div>
+</footer>
+
+    </body>
+</html>
