@@ -26,6 +26,8 @@ $todaySales = fetchAssoc("
     WHERE s.user_id = ? AND DATE(s.created_at) = CURDATE()
 ", [$_SESSION['user_id'], $_SESSION['user_id']]) ?? ['revenue' => 0, 'sale_count' => 0, 'items_sold' => 0];
 
+$savedReport = fetchAssoc("SELECT prepaye, trosa, paiement, nofy FROM daily_reports WHERE user_id = ? AND report_date = CURDATE()", [$_SESSION['user_id']]);
+
 require __DIR__ . '/../layout.php';
 ?>
 
@@ -55,7 +57,51 @@ require __DIR__ . '/../layout.php';
             />
         </div>
 
-        <div id="product-grid" class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div class="mb-4 space-y-3">
+            <label class="block text-xs font-medium text-[#706f6c] dark:text-[#A1A09A]">Rapport du jour</label>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="mb-1 block text-[10px] font-medium text-[#706f6c] dark:text-[#A1A09A]">Prepayé</label>
+                    <div class="flex items-center rounded-lg border border-[#e3e3e0] bg-white shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] focus-within:border-[#8B4513] focus-within:ring-1 focus-within:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615]">
+                        <input type="number" id="prepaye" min="0" placeholder="0" value="<?= htmlspecialchars($savedReport['prepaye'] ?? '') ?>" class="w-full bg-transparent px-3 py-2 text-sm text-[#1b1b18] placeholder:text-[#A1A09A] focus:outline-none dark:text-[#FDFDFC]">
+                        <span class="shrink-0 border-l border-[#e3e3e0] px-2 py-2 text-[10px] font-medium text-[#706f6c] dark:border-[#3E3E3A] dark:text-[#A1A09A]">Ar</span>
+                    </div>
+                </div>
+                <div>
+                    <label class="mb-1 block text-[10px] font-medium text-[#706f6c] dark:text-[#A1A09A]">Trosa (Crédit)</label>
+                    <div class="flex items-center rounded-lg border border-[#e3e3e0] bg-white shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] focus-within:border-[#8B4513] focus-within:ring-1 focus-within:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615]">
+                        <input type="number" id="trosa-input" name="trosa" min="0" placeholder="0" value="<?= htmlspecialchars($savedReport['trosa'] ?? '') ?>" class="w-full bg-transparent px-3 py-2 text-sm text-[#1b1b18] placeholder:text-[#A1A09A] focus:outline-none dark:text-[#FDFDFC]">
+                        <span class="shrink-0 border-l border-[#e3e3e0] px-2 py-2 text-[10px] font-medium text-[#706f6c] dark:border-[#3E3E3A] dark:text-[#A1A09A]">Ar</span>
+                    </div>
+                </div>
+                <div>
+                    <label class="mb-1 block text-[10px] font-medium text-[#706f6c] dark:text-[#A1A09A]">Paiement</label>
+                    <div class="flex items-center rounded-lg border border-[#e3e3e0] bg-white shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] focus-within:border-[#8B4513] focus-within:ring-1 focus-within:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615]">
+                        <input type="number" id="paiement" min="0" placeholder="0" value="<?= htmlspecialchars($savedReport['paiement'] ?? '') ?>" class="w-full bg-transparent px-3 py-2 text-sm text-[#1b1b18] placeholder:text-[#A1A09A] focus:outline-none dark:text-[#FDFDFC]">
+                        <span class="shrink-0 border-l border-[#e3e3e0] px-2 py-2 text-[10px] font-medium text-[#706f6c] dark:border-[#3E3E3A] dark:text-[#A1A09A]">Ar</span>
+                    </div>
+                </div>
+                <div>
+                    <label class="mb-1 block text-[10px] font-medium text-[#706f6c] dark:text-[#A1A09A]">Nofy</label>
+                    <div class="flex items-center rounded-lg border border-[#e3e3e0] bg-white shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] focus-within:border-[#8B4513] focus-within:ring-1 focus-within:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615]">
+                        <input type="number" id="nofy" min="0" placeholder="0" value="<?= htmlspecialchars($savedReport['nofy'] ?? '') ?>" class="w-full bg-transparent px-3 py-2 text-sm text-[#1b1b18] placeholder:text-[#A1A09A] focus:outline-none dark:text-[#FDFDFC]">
+                        <span class="shrink-0 border-l border-[#e3e3e0] px-2 py-2 text-[10px] font-medium text-[#706f6c] dark:border-[#3E3E3A] dark:text-[#A1A09A]">Ar</span>
+                    </div>
+                </div>
+            </div>
+            <div>
+                <label class="mb-1 block text-[10px] font-medium text-[#706f6c] dark:text-[#A1A09A]">Versement du jour</label>
+                <div class="flex items-center rounded-lg border border-[#e3e3e0] bg-white shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] focus-within:border-[#8B4513] focus-within:ring-1 focus-within:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615]">
+                    <input type="number" id="versement" name="versement" min="0" placeholder="0" class="w-full bg-transparent px-3 py-2 text-sm text-[#1b1b18] placeholder:text-[#A1A09A] focus:outline-none dark:text-[#FDFDFC]">
+                    <span class="shrink-0 border-l border-[#e3e3e0] px-2 py-2 text-[10px] font-medium text-[#706f6c] dark:border-[#3E3E3A] dark:text-[#A1A09A]">Ar</span>
+                </div>
+            </div>
+            <button type="button" id="save-report" class="w-full rounded-lg bg-[#8B4513] px-3 py-2 text-xs font-semibold text-[#FDFDFC] transition hover:bg-[#A0522D]">Enregistrer</button>
+            <p id="report-status" class="text-[10px]"></p>
+        </div>
+        
+
+        <div id="product-grid" class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <?php foreach ($products as $product): ?>
             <div class="product-card group relative flex items-center gap-4 rounded-lg bg-white p-4 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] transition hover:border-[#8B4513] disabled:cursor-not-allowed disabled:opacity-50 dark:bg-[#161615]"
                  data-product-id="<?php echo $product['id']; ?>"
@@ -78,10 +124,11 @@ require __DIR__ . '/../layout.php';
                         <?php echo (int)$product['quantity']; ?> <?php echo htmlspecialchars($product['unit']); ?> en stock
                     </p>
                 </div>
-                <div class="qty-controls hidden shrink-0 items-center gap-1">
+                <div class="qty-controls hidden shrink-0 flex-wrap items-center justify-center gap-1">
                     <button type="button" onclick="gridUpdateQty(<?php echo $product['id']; ?>, -1)" class="flex h-7 w-7 items-center justify-center rounded-lg border border-[#e3e3e0] text-sm text-[#1b1b18] transition hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:text-[#FDFDFC]">-</button>
                     <span class="grid-qty w-8 text-center text-sm font-bold text-[#8B4513]">0</span>
                     <button type="button" onclick="gridUpdateQty(<?php echo $product['id']; ?>, 1)" class="grid-plus flex h-7 w-7 items-center justify-center rounded-lg border border-[#e3e3e0] text-sm text-[#1b1b18] transition hover:border-[#8B4513] hover:text-[#8B4513] disabled:opacity-40 dark:border-[#3E3E3A] dark:text-[#FDFDFC]">+</button>
+                    <span class="grid-total w-full text-center text-xs font-semibold text-[#8B4513]"></span>
                 </div>
                 <span class="grid-add-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[#8B4513] text-[#8B4513] transition group-hover:opacity-100 <?php echo $product['quantity'] <= 0 ? '' : 'opacity-0'; ?>">+</span>
             </div>
@@ -107,28 +154,9 @@ require __DIR__ . '/../layout.php';
 
                 <form id="checkout-form" method="POST" action="<?php echo url('pos/checkout'); ?>" class="mt-4">
                     <div id="cart-hidden-inputs"></div>
-                    <div class="mb-4">
-                        <label class="mb-2 block text-xs font-medium text-[#706f6c] dark:text-[#A1A09A]">Mode de paiement</label>
-                        <div class="grid grid-cols-3 gap-2">
-                            <label class="payment-option flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border-2 border-[#8B4513] bg-[#8B4513]/10 px-2 py-2 text-xs font-medium text-[#8B4513] transition">
-                                <input type="radio" name="payment_method" value="cash" checked class="sr-only">
-                                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
-                                Cash
-                            </label>
-                            <label class="payment-option flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border-2 border-[#e3e3e0] bg-white px-2 py-2 text-xs font-medium text-[#706f6c] transition hover:border-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#A1A09A]">
-                                <input type="radio" name="payment_method" value="mobile_money" class="sr-only">
-                                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
-                                Mobile money
-                            </label>
-                            <label class="payment-option flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border-2 border-[#e3e3e0] bg-white px-2 py-2 text-xs font-medium text-[#706f6c] transition hover:border-[#FF750F] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#A1A09A]">
-                                <input type="radio" name="payment_method" value="credit" class="sr-only">
-                                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                                Crédit
-                            </label>
-                        </div>
-                    </div>
+                    <input type="hidden" id="versement-hidden" name="versement" value="">
                     <button type="submit" id="checkout-btn" class="w-full rounded-lg bg-[#8B4513] py-3 px-4 text-sm font-semibold text-[#FDFDFC] hover:bg-[#A0522D] transition shadow-sm">
-                        Encaisser la vente
+                        Enregistrer la vérification
                     </button>
                 </form>
             </div>
@@ -216,18 +244,22 @@ function syncGridCards() {
         const addIcon = card.querySelector('.grid-add-icon');
         const qtySpan = card.querySelector('.grid-qty');
         const plusBtn = card.querySelector('.grid-plus');
+        const totalSpan = card.querySelector('.grid-total');
+        const price = parseFloat(card.dataset.price);
         const max = parseInt(card.dataset.max);
         if (cart[id]) {
             qtyControls.classList.remove('hidden');
             qtyControls.classList.add('flex');
             addIcon.classList.add('hidden');
             qtySpan.textContent = cart[id].quantity;
+            totalSpan.textContent = formatCurrency(price * cart[id].quantity);
             plusBtn.disabled = cart[id].quantity >= max;
         } else {
             qtyControls.classList.add('hidden');
             qtyControls.classList.remove('flex');
             addIcon.classList.remove('hidden');
             qtySpan.textContent = '0';
+            totalSpan.textContent = '';
             plusBtn.disabled = false;
         }
     });
@@ -317,32 +349,50 @@ document.getElementById('search-input').addEventListener('input', function() {
     noProducts.style.display = visible === 0 ? '' : 'none';
 });
 
-document.querySelectorAll('.payment-option input[type="radio"]').forEach(radio => {
-    radio.addEventListener('change', function() {
-        document.querySelectorAll('.payment-option').forEach(label => {
-            const input = label.querySelector('input[type="radio"]');
-            if (input.checked) {
-                label.className = label.className.replace('border-[#e3e3e0] bg-white text-[#706f6c] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#A1A09A]', '').trim();
-                if (input.value === 'credit') {
-                    label.className += ' border-[#FF750F] bg-[#FF750F]/10 text-[#FF750F]';
-                } else {
-                    label.className += ' border-[#8B4513] bg-[#8B4513]/10 text-[#8B4513]';
-                }
-            } else {
-                label.className = label.className.replace(/border-\[#(8B4513|FF750F)\]\s+bg-\[#(8B4513|FF750F)\]\/10\s+text-\[#(8B4513|FF750F)\]/g, '').trim();
-                if (!label.className.includes('border-[#e3e3e0]')) {
-                    label.className += ' border-[#e3e3e0] bg-white text-[#706f6c] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#A1A09A]';
-                }
-            }
-        });
-        const btn = document.getElementById('checkout-btn');
-        if (this.value === 'credit') {
-            btn.textContent = 'Enregistrer le crédit';
-            btn.className = btn.className.replace('bg-[#8B4513] hover:bg-[#A0522D]', 'bg-[#FF750F] hover:bg-[#e66a0d]');
+document.getElementById('checkout-form').addEventListener('submit', function() {
+    document.getElementById('versement-hidden').value = document.getElementById('versement').value || '0';
+});
+
+document.getElementById('save-report').addEventListener('click', function() {
+    const btn = this;
+    const status = document.getElementById('report-status');
+    btn.disabled = true;
+    btn.textContent = 'Enregistrement…';
+
+    const reportData = 'date=' + encodeURIComponent('<?php echo date('Y-m-d'); ?>') +
+        '&prepaye=' + encodeURIComponent(document.getElementById('prepaye').value || '0') +
+        '&trosa=' + encodeURIComponent(document.getElementById('trosa-input').value || '0') +
+        '&paiement=' + encodeURIComponent(document.getElementById('paiement').value || '0') +
+        '&nofy=' + encodeURIComponent(document.getElementById('nofy').value || '0');
+
+    const versementData = 'amount=' + encodeURIComponent(document.getElementById('versement').value || '0');
+
+    Promise.all([
+        fetch('<?php echo url('sales/save-report'); ?>', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: reportData
+        }).then(r => r.json()),
+        fetch('<?php echo url('pos/save-versement'); ?>', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: versementData
+        }).then(r => r.json())
+    ]).then(([reportResult, versementResult]) => {
+        btn.disabled = false;
+        btn.textContent = 'Enregistrer';
+        if (reportResult.success && versementResult.success) {
+            status.textContent = 'Tout enregistré.';
+            status.className = 'text-[10px] text-[#16a34a]';
         } else {
-            btn.textContent = 'Encaisser la vente';
-            btn.className = btn.className.replace('bg-[#FF750F] hover:bg-[#e66a0d]', 'bg-[#8B4513] hover:bg-[#A0522D]');
+            status.textContent = reportResult.message || versementResult.message || 'Erreur';
+            status.className = 'text-[10px] text-[#dc2626]';
         }
+    }).catch(() => {
+        btn.disabled = false;
+        btn.textContent = 'Enregistrer';
+        status.textContent = 'Erreur de connexion';
+        status.className = 'text-[10px] text-[#dc2626]';
     });
 });
 </script>

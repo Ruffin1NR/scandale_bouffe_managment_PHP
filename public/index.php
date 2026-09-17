@@ -364,6 +364,21 @@ switch ($page) {
             case 'create':
                 require __DIR__ . '/../pages/admin/sale_create.php';
                 break;
+            case 'save-report':
+                if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                    header('Content-Type: application/json');
+                    echo json_encode(['success' => false, 'message' => 'Méthode non autorisée.']);
+                    exit;
+                }
+                $reportDate = $_POST['date'] ?? date('Y-m-d');
+                $prepaye = max(0, (float)($_POST['prepaye'] ?? 0));
+                $trosaVal = max(0, (float)($_POST['trosa'] ?? 0));
+                $paiementVal = max(0, (float)($_POST['paiement'] ?? 0));
+                $nofyVal = max(0, (float)($_POST['nofy'] ?? 0));
+                query("INSERT INTO daily_reports (user_id, report_date, prepaye, trosa, paiement, nofy, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE prepaye = VALUES(prepaye), trosa = VALUES(trosa), paiement = VALUES(paiement), nofy = VALUES(nofy)", [$_SESSION['user_id'], $reportDate, $prepaye, $trosaVal, $paiementVal, $nofyVal]);
+                header('Content-Type: application/json');
+                echo json_encode(['success' => true, 'message' => 'Rapport enregistré.']);
+                exit;
             default:
                 require __DIR__ . '/../pages/admin/sales.php';
                 break;
@@ -382,6 +397,23 @@ switch ($page) {
         $action = $pageParams[0] ?? '';
 
         switch ($action) {
+            case 'save-versement':
+                if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                    header('Content-Type: application/json');
+                    echo json_encode(['success' => false, 'message' => 'Méthode non autorisée.']);
+                    exit;
+                }
+                $amount = max(0, (float)($_POST['amount'] ?? 0));
+                if ($amount <= 0) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['success' => false, 'message' => 'Le montant doit être supérieur à 0.']);
+                    exit;
+                }
+                query("INSERT INTO daily_deposits (user_id, amount, created_at) VALUES (?, ?, NOW())", [$_SESSION['user_id'], $amount]);
+                header('Content-Type: application/json');
+                echo json_encode(['success' => true, 'message' => 'Versement de ' . number_format($amount, 0, ',', ' ') . ' Ar enregistré.']);
+                exit;
+
             case 'checkout':
                 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
                     header('Location: ' . url('pos'));
@@ -437,6 +469,7 @@ switch ($page) {
 
                 // Transaction DB : créer la vente + décrémenter le stock
                 $paymentMethod = in_array($_POST['payment_method'] ?? '', ['cash', 'mobile_money', 'credit']) ? $_POST['payment_method'] : 'cash';
+                $versement = max(0, (float)($_POST['versement'] ?? 0));
                 $pdo = $GLOBALS['pdo'];
                 $pdo->beginTransaction();
                 try {
@@ -450,6 +483,11 @@ switch ($page) {
 
                         // Décrémenter le stock
                         query("UPDATE products SET quantity = quantity - ? WHERE id = ?", [$item['quantity'], $item['product_id']]);
+                    }
+
+                    // Enregistrer le versement du jour
+                    if ($versement > 0) {
+                        query("INSERT INTO daily_deposits (user_id, amount, created_at) VALUES (?, ?, NOW())", [$_SESSION['user_id'], $versement]);
                     }
 
                     $pdo->commit();

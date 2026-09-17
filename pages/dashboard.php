@@ -81,6 +81,56 @@ $topProducts = fetchAllAssoc("
     ORDER BY total_qty DESC
     LIMIT 5
 ");
+
+// 5. Ventes mensuelles (12 derniers mois)
+$monthlySales = fetchAllAssoc("
+    SELECT YEAR(s.created_at) as yr, MONTH(s.created_at) as mn, COALESCE(SUM(s.total), 0) as revenue
+    FROM sales s
+    WHERE s.created_at >= DATE_SUB(CURDATE(), INTERVAL 11 MONTH)
+    GROUP BY YEAR(s.created_at), MONTH(s.created_at)
+    ORDER BY yr ASC, mn ASC
+");
+$chartMonths = [];
+$chartMonthlyRevenue = [];
+for ($i = 11; $i >= 0; $i--) {
+    $y = (int)date('Y', strtotime("-$i months"));
+    $m = (int)date('n', strtotime("-$i months"));
+    $chartMonths[] = date('M Y', strtotime("-$i months"));
+    $found = false;
+    foreach ($monthlySales as $ms) {
+        if ((int)$ms['yr'] === $y && (int)$ms['mn'] === $m) {
+            $chartMonthlyRevenue[] = (float)$ms['revenue'];
+            $found = true;
+            break;
+        }
+    }
+    if (!$found) { $chartMonthlyRevenue[] = 0; }
+}
+
+// 6. Ventes hebdomadaires (12 dernières semaines)
+$weeklySales = fetchAllAssoc("
+    SELECT YEARWEEK(s.created_at, 1) as wk, COALESCE(SUM(s.total), 0) as revenue
+    FROM sales s
+    WHERE s.created_at >= DATE_SUB(CURDATE(), INTERVAL 11 WEEK)
+    GROUP BY YEARWEEK(s.created_at, 1)
+    ORDER BY wk ASC
+");
+$chartWeeks = [];
+$chartWeeklyRevenue = [];
+for ($i = 11; $i >= 0; $i--) {
+    $weekStart = date('Y-m-d', strtotime("monday -$i weeks"));
+    $wk = (int)date('o', strtotime($weekStart)) * 100 + (int)date('W', strtotime($weekStart));
+    $chartWeeks[] = date('d/m', strtotime($weekStart));
+    $found = false;
+    foreach ($weeklySales as $ws) {
+        if ((int)$ws['wk'] === $wk) {
+            $chartWeeklyRevenue[] = (float)$ws['revenue'];
+            $found = true;
+            break;
+        }
+    }
+    if (!$found) { $chartWeeklyRevenue[] = 0; }
+}
 ?>
 
 <h2 class="text-xl font-semibold leading-tight text-[#1b1b18] dark:text-[#FDFDFC] mb-8">Tableau de bord</h2>
@@ -162,6 +212,18 @@ $bm = getPaymentBreakdown($breakdownMonth);
         <h3 class="text-sm font-semibold text-[#1b1b18] dark:text-[#FDFDFC] mb-4">Ventes des 7 derniers jours</h3>
         <div class="relative" style="height: 260px;">
             <canvas id="chart-daily-sales"></canvas>
+        </div>
+    </div>
+    <div class="rounded-lg bg-white p-6 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
+        <h3 class="text-sm font-semibold text-[#1b1b18] dark:text-[#FDFDFC] mb-4">Ventes mensuelles (12 mois)</h3>
+        <div class="relative" style="height: 260px;">
+            <canvas id="chart-monthly-sales"></canvas>
+        </div>
+    </div>
+    <div class="rounded-lg bg-white p-6 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
+        <h3 class="text-sm font-semibold text-[#1b1b18] dark:text-[#FDFDFC] mb-4">Ventes hebdomadaires (12 semaines)</h3>
+        <div class="relative" style="height: 260px;">
+            <canvas id="chart-weekly-sales"></canvas>
         </div>
     </div>
     <!-- <div class="rounded-lg bg-white p-6 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
@@ -273,6 +335,62 @@ document.addEventListener('DOMContentLoaded', function() {
                 borderRadius: 6,
                 borderSkipped: false,
                 barThickness: 24
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { beginAtZero: true, grid: { color: gridColor }, ticks: { callback: v => v.toLocaleString() + ' Ar' } },
+                x: { grid: { display: false } }
+            }
+        }
+    });
+
+    // 1b. Ventes mensuelles
+    new Chart(document.getElementById('chart-monthly-sales'), {
+        type: 'line',
+        data: {
+            labels: <?php echo json_encode($chartMonths); ?>,
+            datasets: [{
+                label: 'Revenu (Ar)',
+                data: <?php echo json_encode($chartMonthlyRevenue); ?>,
+                borderColor: palette[0],
+                backgroundColor: 'rgba(139, 69, 19, 0.1)',
+                fill: true,
+                tension: 0.3,
+                pointBackgroundColor: palette[0],
+                pointRadius: 4,
+                pointHoverRadius: 6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { beginAtZero: true, grid: { color: gridColor }, ticks: { callback: v => v.toLocaleString() + ' Ar' } },
+                x: { grid: { display: false } }
+            }
+        }
+    });
+
+    // 1c. Ventes hebdomadaires
+    new Chart(document.getElementById('chart-weekly-sales'), {
+        type: 'line',
+        data: {
+            labels: <?php echo json_encode($chartWeeks); ?>,
+            datasets: [{
+                label: 'Revenu (Ar)',
+                data: <?php echo json_encode($chartWeeklyRevenue); ?>,
+                borderColor: '#FF750F',
+                backgroundColor: 'rgba(255, 117, 15, 0.1)',
+                fill: true,
+                tension: 0.3,
+                pointBackgroundColor: '#FF750F',
+                pointRadius: 4,
+                pointHoverRadius: 6
             }]
         },
         options: {

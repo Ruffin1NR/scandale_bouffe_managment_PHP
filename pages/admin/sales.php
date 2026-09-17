@@ -4,41 +4,69 @@ $pageTitle = 'Suivi des ventes';
 ?>
 <?php require __DIR__ . '/../layout.php'; ?>
 <?php
-$page = max(1, (int)($_GET['page'] ?? 1));
+$page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 15;
 $offset = ($page - 1) * $perPage;
 $dateFrom = $_GET['from'] ?? '';
 $dateTo = $_GET['to'] ?? '';
-$categoryFilter = (int)($_GET['category'] ?? 0);
-$productFilter = (int)($_GET['product'] ?? 0);
+$categoryFilter = (int) ($_GET['category'] ?? 0);
+$productFilter = (int) ($_GET['product'] ?? 0);
 $paymentFilter = $_GET['payment'] ?? '';
 $where = "WHERE 1=1";
 $params = [];
-if ($dateFrom !== '') { $where .= " AND s.created_at >= ?"; $params[] = $dateFrom . ' 00:00:00'; }
-if ($dateTo !== '') { $where .= " AND s.created_at <= ?"; $params[] = $dateTo . ' 23:59:59'; }
-if ($productFilter > 0) { $where .= " AND si.product_id = ?"; $params[] = $productFilter; }
-if ($categoryFilter > 0) { $where .= " AND p.category_id = ?"; $params[] = $categoryFilter; }
-if ($paymentFilter !== '' && in_array($paymentFilter, ['cash', 'mobile_money', 'credit'])) { $where .= " AND s.payment_method = ?"; $params[] = $paymentFilter; }
+if ($dateFrom !== '') {
+    $where .= " AND s.created_at >= ?";
+    $params[] = $dateFrom . ' 00:00:00';
+}
+if ($dateTo !== '') {
+    $where .= " AND s.created_at <= ?";
+    $params[] = $dateTo . ' 23:59:59';
+}
+if ($productFilter > 0) {
+    $where .= " AND si.product_id = ?";
+    $params[] = $productFilter;
+}
+if ($categoryFilter > 0) {
+    $where .= " AND p.category_id = ?";
+    $params[] = $categoryFilter;
+}
+if ($paymentFilter !== '' && in_array($paymentFilter, ['cash', 'mobile_money', 'credit'])) {
+    $where .= " AND s.payment_method = ?";
+    $params[] = $paymentFilter;
+}
 
 $kpi = fetchAssoc("SELECT COUNT(DISTINCT s.id) as total_sales, COALESCE(SUM(si.quantity * si.unit_price), 0) as total_revenue, COALESCE(AVG(s.total), 0) as avg_basket, COALESCE(SUM(si.quantity), 0) as items_sold FROM sales s JOIN sale_items si ON si.sale_id = s.id LEFT JOIN products p ON si.product_id = p.id $where", $params);
 
-$todayWhere = "WHERE DATE(s.created_at) = CURDATE()";
-$todayParams = [];
-if ($dateFrom !== '') { $todayWhere .= " AND s.created_at >= ?"; $todayParams[] = $dateFrom . ' 00:00:00'; }
-if ($dateTo !== '') { $todayWhere .= " AND s.created_at <= ?"; $todayParams[] = $dateTo . ' 23:59:59'; }
-$venteJour = fetchAssoc("SELECT COALESCE(SUM(total), 0) as total FROM sales s $todayWhere", $todayParams);
-$versement = fetchAssoc("SELECT COALESCE(SUM(total), 0) as total FROM sales s $todayWhere AND payment_method IN ('cash', 'mobile_money')", $todayParams);
-$trosa = fetchAssoc("SELECT COALESCE(SUM(total), 0) as total FROM sales s $todayWhere AND payment_method = 'credit'", $todayParams);
+if ($dateFrom !== '' || $dateTo !== '') {
+    $kpiWhere = "WHERE 1=1";
+    $kpiParams = [];
+    if ($dateFrom !== '') { $kpiWhere .= " AND s.created_at >= ?"; $kpiParams[] = $dateFrom . ' 00:00:00'; }
+    if ($dateTo !== '') { $kpiWhere .= " AND s.created_at <= ?"; $kpiParams[] = $dateTo . ' 23:59:59'; }
+    $depositWhere = "WHERE user_id = ?";
+    $depositParams = [$_SESSION['user_id']];
+    if ($dateFrom !== '') { $depositWhere .= " AND created_at >= ?"; $depositParams[] = $dateFrom . ' 00:00:00'; }
+    if ($dateTo !== '') { $depositWhere .= " AND created_at <= ?"; $depositParams[] = $dateTo . ' 23:59:59'; }
+} else {
+    $kpiWhere = "WHERE 1=1";
+    $kpiParams = [];
+    $depositWhere = "WHERE user_id = ?";
+    $depositParams = [$_SESSION['user_id']];
+}
+$venteJour = fetchAssoc("SELECT COALESCE(SUM(total), 0) as total FROM sales s $kpiWhere", $kpiParams);
+$versement = fetchAssoc("SELECT COALESCE(SUM(amount), 0) as total FROM daily_deposits $depositWhere", $depositParams);
+$trosa = fetchAssoc("SELECT COALESCE(SUM(trosa), 0) as total FROM daily_reports $depositWhere", $depositParams);
 $totalResult = fetchAssoc("SELECT COUNT(DISTINCT s.id) as count FROM sales s JOIN sale_items si ON si.sale_id = s.id LEFT JOIN products p ON si.product_id = p.id $where", $params);
-$total = (int)($totalResult['count'] ?? 0);
-$totalPages = max(1, (int)ceil($total / $perPage));
+$total = (int) ($totalResult['count'] ?? 0);
+$totalPages = max(1, (int) ceil($total / $perPage));
 $sales = fetchAllAssoc("SELECT DISTINCT s.id, s.total, s.payment_method, s.created_at, s.user_id, u.name as vendor_name FROM sales s LEFT JOIN users u ON s.user_id = u.id LEFT JOIN sale_items si ON si.sale_id = s.id LEFT JOIN products p ON si.product_id = p.id $where ORDER BY s.created_at DESC LIMIT $perPage OFFSET $offset", $params);
 $saleIds = array_column($sales, 'id');
 $saleItems = [];
 if (!empty($saleIds)) {
     $placeholders = implode(',', array_fill(0, count($saleIds), '?'));
     $items = fetchAllAssoc("SELECT si.*, p.name AS product_name, c.name as category_name FROM sale_items si LEFT JOIN products p ON si.product_id = p.id LEFT JOIN categories c ON p.category_id = c.id WHERE si.sale_id IN ($placeholders)", $saleIds);
-    foreach ($items as $item) { $saleItems[$item['sale_id']][] = $item; }
+    foreach ($items as $item) {
+        $saleItems[$item['sale_id']][] = $item;
+    }
 }
 $byProduct = fetchAllAssoc("SELECT p.name AS product_name, COALESCE(c.name, 'Sans catégorie') as category_name, SUM(si.quantity) as qty, SUM(si.quantity * si.unit_price) as revenue FROM sale_items si JOIN sales s ON si.sale_id = s.id LEFT JOIN products p ON si.product_id = p.id LEFT JOIN categories c ON p.category_id = c.id $where GROUP BY p.name, c.name ORDER BY revenue DESC", $params);
 $byCategory = fetchAllAssoc("SELECT COALESCE(c.name, 'Sans catégorie') as name, SUM(si.quantity) as quantity, SUM(si.quantity * si.unit_price) as revenue FROM sale_items si JOIN sales s ON si.sale_id = s.id LEFT JOIN products p ON si.product_id = p.id LEFT JOIN categories c ON p.category_id = c.id $where GROUP BY c.name ORDER BY revenue DESC", $params);
@@ -50,11 +78,19 @@ $allCategories = fetchAllAssoc("SELECT id, name FROM categories ORDER BY name");
 $maxCatRev = !empty($byCategory) ? max(array_column($byCategory, 'revenue')) : 1;
 $maxDayRev = !empty($byDay) ? max(array_column($byDay, 'revenue')) : 1;
 $qs = '';
-if ($dateFrom) $qs .= '&from=' . $dateFrom;
-if ($dateTo) $qs .= '&to=' . $dateTo;
-if ($categoryFilter) $qs .= '&category=' . $categoryFilter;
-if ($productFilter) $qs .= '&product=' . $productFilter;
-if ($paymentFilter) $qs .= '&payment=' . $paymentFilter;
+if ($dateFrom)
+    $qs .= '&from=' . $dateFrom;
+if ($dateTo)
+    $qs .= '&to=' . $dateTo;
+if ($categoryFilter)
+    $qs .= '&category=' . $categoryFilter;
+if ($productFilter)
+    $qs .= '&product=' . $productFilter;
+if ($paymentFilter)
+    $qs .= '&payment=' . $paymentFilter;
+
+$reportDate = $dateFrom ?: date('Y-m-d');
+$savedReport = fetchAssoc("SELECT prepaye, trosa, paiement, nofy FROM daily_reports WHERE user_id = ? AND report_date = ?", [$_SESSION['user_id'], $reportDate]);
 ?>
 
 <div class="py-12">
@@ -73,75 +109,106 @@ if ($paymentFilter) $qs .= '&payment=' . $paymentFilter;
                 <div>
                     <label class="mb-1 block text-xs font-medium text-[#706f6c] dark:text-[#A1A09A]">Du</label>
                     <input type="date" name="from" value="<?= htmlspecialchars($dateFrom) ?>"
-                           class="w-full rounded-lg border border-[#e3e3e0] bg-white px-3 py-2 text-sm text-[#1b1b18] shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] placeholder:text-[#A1A09A] focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#FDFDFC]">
+                        class="w-full rounded-lg border border-[#e3e3e0] bg-white px-3 py-2 text-sm text-[#1b1b18] shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] placeholder:text-[#A1A09A] focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#FDFDFC]">
                 </div>
                 <div>
                     <label class="mb-1 block text-xs font-medium text-[#706f6c] dark:text-[#A1A09A]">Au</label>
                     <input type="date" name="to" value="<?= htmlspecialchars($dateTo) ?>"
-                           class="w-full rounded-lg border border-[#e3e3e0] bg-white px-3 py-2 text-sm text-[#1b1b18] shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] placeholder:text-[#A1A09A] focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#FDFDFC]">
+                        class="w-full rounded-lg border border-[#e3e3e0] bg-white px-3 py-2 text-sm text-[#1b1b18] shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] placeholder:text-[#A1A09A] focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#FDFDFC]">
                 </div>
                 <div>
                     <label class="mb-1 block text-xs font-medium text-[#706f6c] dark:text-[#A1A09A]">Catégorie</label>
                     <select name="category"
-                            class="w-full rounded-lg border border-[#e3e3e0] bg-white px-3 py-2 text-sm text-[#1b1b18] shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] placeholder:text-[#A1A09A] focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#FDFDFC]">
+                        class="w-full rounded-lg border border-[#e3e3e0] bg-white px-3 py-2 text-sm text-[#1b1b18] shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] placeholder:text-[#A1A09A] focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#FDFDFC]">
                         <option value="">Toutes</option>
                         <?php foreach ($allCategories as $cat): ?>
-                            <option value="<?= $cat['id'] ?>" <?= $categoryFilter == $cat['id'] ? 'selected' : '' ?>><?= htmlspecialchars($cat['name']) ?></option>
+                            <option value="<?= $cat['id'] ?>" <?= $categoryFilter == $cat['id'] ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($cat['name']) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
                 <div>
                     <label class="mb-1 block text-xs font-medium text-[#706f6c] dark:text-[#A1A09A]">Produit</label>
                     <select name="product"
-                            class="w-full rounded-lg border border-[#e3e3e0] bg-white px-3 py-2 text-sm text-[#1b1b18] shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] placeholder:text-[#A1A09A] focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#FDFDFC]">
+                        class="w-full rounded-lg border border-[#e3e3e0] bg-white px-3 py-2 text-sm text-[#1b1b18] shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] placeholder:text-[#A1A09A] focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#FDFDFC]">
                         <option value="">Tous</option>
                         <?php foreach ($allProducts as $prod): ?>
-                            <option value="<?= $prod['id'] ?>" <?= $productFilter == $prod['id'] ? 'selected' : '' ?>><?= htmlspecialchars($prod['name']) ?></option>
+                            <option value="<?= $prod['id'] ?>" <?= $productFilter == $prod['id'] ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($prod['name']) ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
                 <div>
                     <label class="mb-1 block text-xs font-medium text-[#706f6c] dark:text-[#A1A09A]">Paiement</label>
                     <select name="payment"
-                            class="w-full rounded-lg border border-[#e3e3e0] bg-white px-3 py-2 text-sm text-[#1b1b18] shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] placeholder:text-[#A1A09A] focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#FDFDFC]">
+                        class="w-full rounded-lg border border-[#e3e3e0] bg-white px-3 py-2 text-sm text-[#1b1b18] shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] placeholder:text-[#A1A09A] focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#FDFDFC]">
                         <option value="">Tous</option>
                         <option value="cash" <?= $paymentFilter === 'cash' ? 'selected' : '' ?>>Cash</option>
-                        <option value="mobile_money" <?= $paymentFilter === 'mobile_money' ? 'selected' : '' ?>>Mobile Money</option>
+                        <option value="mobile_money" <?= $paymentFilter === 'mobile_money' ? 'selected' : '' ?>>Mobile
+                            Money</option>
                         <option value="credit" <?= $paymentFilter === 'credit' ? 'selected' : '' ?>>Crédit</option>
                     </select>
                 </div>
                 <div class="flex items-end gap-2">
-                    <button type="submit" class="flex-1 rounded-lg bg-[#8B4513] px-4 py-2 text-sm font-medium text-[#FDFDFC] transition hover:bg-[#A0522D]">Filtrer</button>
+                    <button type="submit"
+                        class="flex-1 rounded-lg bg-[#8B4513] px-4 py-2 text-sm font-medium text-[#FDFDFC] transition hover:bg-[#A0522D]">Filtrer</button>
                     <?php if ($dateFrom || $dateTo || $categoryFilter || $productFilter || $paymentFilter): ?>
-                        <a href="sales.php" class="rounded-lg border border-[#e3e3e0] px-4 py-2 text-sm font-medium text-[#706f6c] transition hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:text-[#A1A09A]">Ré;initialiser</a>
+                        <a href="sales.php"
+                            class="rounded-lg border border-[#e3e3e0] px-4 py-2 text-sm font-medium text-[#706f6c] transition hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:text-[#A1A09A]">Réinitialiser</a>
                     <?php endif; ?>
                 </div>
             </form>
         </div>
 
         <div class="mb-6 flex flex-wrap gap-2">
-            <a href="<?php echo url('sales?from=' . date('Y-m-d') . '&to=' . date('Y-m-d')); ?>" class="inline-flex items-center gap-1.5 rounded-full border border-[#e3e3e0] bg-white px-3 py-1.5 text-xs font-medium text-[#706f6c] transition hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#A1A09A]">Aujourd'hui</a>
-            <a href="<?php echo url('sales?from=' . date('Y-m-d', strtotime('monday this week')) . '&to=' . date('Y-m-d')); ?>" class="inline-flex items-center gap-1.5 rounded-full border border-[#e3e3e0] bg-white px-3 py-1.5 text-xs font-medium text-[#706f6c] transition hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#A1A09A]">Cette semaine</a>
-            <a href="<?php echo url('sales?from=' . date('Y-m-01') . '&to=' . date('Y-m-d')); ?>" class="inline-flex items-center gap-1.5 rounded-full border border-[#e3e3e0] bg-white px-3 py-1.5 text-xs font-medium text-[#706f6c] transition hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#A1A09A]">Ce mois</a>
-            <a href="<?php echo url('sales?from=' . date('Y-m-d', strtotime('first day of last month')) . '&to=' . date('Y-m-d', strtotime('last day of last month'))); ?>" class="inline-flex items-center gap-1.5 rounded-full border border-[#e3e3e0] bg-white px-3 py-1.5 text-xs font-medium text-[#706f6c] transition hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#A1A09A]">Mois dernier</a>
-            <a href="<?php echo url('sales'); ?>" class="inline-flex items-center gap-1.5 rounded-full border border-[#e3e3e0] bg-white px-3 py-1.5 text-xs font-medium text-[#706f6c] transition hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#A1A09A]">Tout afficher</a>
+            <?php
+            $today = date('Y-m-d');
+            $weekStart = date('Y-m-d', strtotime('monday this week'));
+            $monthStart = date('Y-m-01');
+            $lastMonthStart = date('Y-m-d', strtotime('first day of last month'));
+            $lastMonthEnd = date('Y-m-d', strtotime('last day of last month'));
+            $isToday = ($dateFrom === $today && $dateTo === $today);
+            $isWeek = ($dateFrom === $weekStart && $dateTo === $today);
+            $isMonth = ($dateFrom === $monthStart && $dateTo === $today);
+            $isLastMonth = ($dateFrom === $lastMonthStart && $dateTo === $lastMonthEnd);
+            $isAll = ($dateFrom === '' && $dateTo === '');
+            $activeClass = 'border-[#8B4513] bg-[#8B4513]/10 text-[#8B4513] font-semibold';
+            $inactiveClass = 'border-[#e3e3e0] bg-white text-[#706f6c] hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#A1A09A]';
+            ?>
+            <a href="<?php echo url('sales?from=' . $today . '&to=' . $today); ?>"
+                class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition <?= $isToday ? $activeClass : $inactiveClass ?>">Aujourd'hui</a>
+            <a href="<?php echo url('sales?from=' . $weekStart . '&to=' . $today); ?>"
+                class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition <?= $isWeek ? $activeClass : $inactiveClass ?>">Cette semaine</a>
+            <a href="<?php echo url('sales?from=' . $monthStart . '&to=' . $today); ?>"
+                class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition <?= $isMonth ? $activeClass : $inactiveClass ?>">Ce mois</a>
+            <a href="<?php echo url('sales?from=' . $lastMonthStart . '&to=' . $lastMonthEnd); ?>"
+                class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition <?= $isLastMonth ? $activeClass : $inactiveClass ?>">Mois dernier</a>
+            <a href="<?php echo url('sales'); ?>"
+                class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition <?= $isAll ? $activeClass : $inactiveClass ?>">Tout afficher</a>
         </div>
 
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div class="rounded-lg bg-white p-6 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
-                <p class="text-3xl font-bold text-[#8B4513]"><?= number_format((float)$venteJour['total'], 0, ',', ' ') ?> Ar</p>
+                <p class="text-3xl font-bold text-[#8B4513]">
+                    <?= number_format((float) $venteJour['total'], 0, ',', ' ') ?> Ar</p>
                 <p class="mt-1 text-sm font-medium text-[#706f6c] dark:text-[#A1A09A]">Vente du jour</p>
             </div>
             <div class="rounded-lg bg-white p-6 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
-                <p class="text-3xl font-bold text-[#16a34a]"><?= number_format((float)$versement['total'], 0, ',', ' ') ?> Ar</p>
+                <p class="text-3xl font-bold text-[#16a34a]">
+                    <?= number_format((float) $versement['total'], 0, ',', ' ') ?> Ar</p>
                 <p class="mt-1 text-sm font-medium text-[#706f6c] dark:text-[#A1A09A]">Versement</p>
             </div>
             <div class="rounded-lg bg-white p-6 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
-                <p class="text-3xl font-bold text-[#FF750F]"><?= number_format((float)$trosa['total'], 0, ',', ' ') ?> Ar</p>
+                <p class="text-3xl font-bold text-[#FF750F]"><?= number_format((float) $trosa['total'], 0, ',', ' ') ?>
+                    Ar</p>
                 <p class="mt-1 text-sm font-medium text-[#706f6c] dark:text-[#A1A09A]">Trosa (Crédit)</p>
             </div>
             <div class="rounded-lg bg-white p-6 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
-                <p class="text-3xl font-bold text-[#dc2626]"><?= number_format((float)($venteJour['total'] - $versement['total']), 0, ',', ' ') ?> Ar</p>
+                <?php
+                $ecart = (float) $venteJour['total'] - (float) $versement['total'];
+                $ecartColor = $ecart >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]';
+                ?>
+                <p class="text-3xl font-bold <?= $ecartColor ?>"><?= number_format($ecart, 0, ',', ' ') ?> Ar</p>
                 <p class="mt-1 text-sm font-medium text-[#706f6c] dark:text-[#A1A09A]">Écart de caisse</p>
             </div>
         </div>
@@ -157,14 +224,18 @@ if ($paymentFilter) $qs .= '&payment=' . $paymentFilter;
                             <?php $pct = $maxCatRev > 0 ? round(($row['revenue'] / $maxCatRev) * 100) : 0; ?>
                             <li>
                                 <div class="flex items-center justify-between text-sm">
-                                    <span class="truncate pr-3 font-medium text-[#1b1b18] dark:text-[#FDFDFC]"><?= htmlspecialchars($row['name']) ?></span>
-                                    <span class="shrink-0 text-[#8B4513]"><?= number_format((float)$row['revenue'], 0, ',', ' ') ?> Ar</span>
+                                    <span
+                                        class="truncate pr-3 font-medium text-[#1b1b18] dark:text-[#FDFDFC]"><?= htmlspecialchars($row['name']) ?></span>
+                                    <span
+                                        class="shrink-0 text-[#8B4513]"><?= number_format((float) $row['revenue'], 0, ',', ' ') ?>
+                                        Ar</span>
                                 </div>
-                                <div class="mt-1.5 flex items-center justify-between text-xs text-[#706f6c] dark:text-[#A1A09A]">
+                                <div
+                                    class="mt-1.5 flex items-center justify-between text-xs text-[#706f6c] dark:text-[#A1A09A]">
                                     <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-[#F3EFE9] dark:bg-[#0a0a0a]">
                                         <div class="h-full rounded-full bg-[#8B4513]" style="width: <?= $pct ?>%"></div>
                                     </div>
-                                    <span class="ms-3 shrink-0"><?= (int)$row['quantity'] ?> vendus</span>
+                                    <span class="ms-3 shrink-0"><?= (int) $row['quantity'] ?> vendus</span>
                                 </div>
                             </li>
                         <?php endforeach; ?>
@@ -182,14 +253,18 @@ if ($paymentFilter) $qs .= '&payment=' . $paymentFilter;
                             <?php $pct = $maxDayRev > 0 ? round(($row['revenue'] / $maxDayRev) * 100) : 0; ?>
                             <li>
                                 <div class="flex items-center justify-between text-sm">
-                                    <span class="truncate pr-3 font-medium text-[#1b1b18] dark:text-[#FDFDFC]"><?= htmlspecialchars($row['name']) ?></span>
-                                    <span class="shrink-0 text-[#8B4513]"><?= number_format((float)$row['revenue'], 0, ',', ' ') ?> Ar</span>
+                                    <span
+                                        class="truncate pr-3 font-medium text-[#1b1b18] dark:text-[#FDFDFC]"><?= htmlspecialchars($row['name']) ?></span>
+                                    <span
+                                        class="shrink-0 text-[#8B4513]"><?= number_format((float) $row['revenue'], 0, ',', ' ') ?>
+                                        Ar</span>
                                 </div>
-                                <div class="mt-1.5 flex items-center justify-between text-xs text-[#706f6c] dark:text-[#A1A09A]">
+                                <div
+                                    class="mt-1.5 flex items-center justify-between text-xs text-[#706f6c] dark:text-[#A1A09A]">
                                     <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-[#F3EFE9] dark:bg-[#0a0a0a]">
                                         <div class="h-full rounded-full bg-[#8B4513]" style="width: <?= $pct ?>%"></div>
                                     </div>
-                                    <span class="ms-3 shrink-0"><?= (int)$row['quantity'] ?> ventes</span>
+                                    <span class="ms-3 shrink-0"><?= (int) $row['quantity'] ?> ventes</span>
                                 </div>
                             </li>
                         <?php endforeach; ?>
@@ -201,9 +276,10 @@ if ($paymentFilter) $qs .= '&payment=' . $paymentFilter;
         <?php
         $maxWeekRev = !empty($byWeek) ? max(array_column($byWeek, 'revenue')) : 1;
         $maxMonthRev = !empty($byMonth) ? max(array_column($byMonth, 'revenue')) : 1;
-        function formatWeekLabel($ymw) {
+        function formatWeekLabel($ymw)
+        {
             $y = substr($ymw, 0, 4);
-            $w = (int)substr($ymw, 4);
+            $w = (int) substr($ymw, 4);
             return "S$w $y";
         }
         ?>
@@ -218,14 +294,18 @@ if ($paymentFilter) $qs .= '&payment=' . $paymentFilter;
                             <?php $pct = $maxWeekRev > 0 ? round(($row['revenue'] / $maxWeekRev) * 100) : 0; ?>
                             <li>
                                 <div class="flex items-center justify-between text-sm">
-                                    <span class="truncate pr-3 font-medium text-[#1b1b18] dark:text-[#FDFDFC]"><?= htmlspecialchars(formatWeekLabel($row['name'])) ?></span>
-                                    <span class="shrink-0 text-[#8B4513]"><?= number_format((float)$row['revenue'], 0, ',', ' ') ?> Ar</span>
+                                    <span
+                                        class="truncate pr-3 font-medium text-[#1b1b18] dark:text-[#FDFDFC]"><?= htmlspecialchars(formatWeekLabel($row['name'])) ?></span>
+                                    <span
+                                        class="shrink-0 text-[#8B4513]"><?= number_format((float) $row['revenue'], 0, ',', ' ') ?>
+                                        Ar</span>
                                 </div>
-                                <div class="mt-1.5 flex items-center justify-between text-xs text-[#706f6c] dark:text-[#A1A09A]">
+                                <div
+                                    class="mt-1.5 flex items-center justify-between text-xs text-[#706f6c] dark:text-[#A1A09A]">
                                     <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-[#F3EFE9] dark:bg-[#0a0a0a]">
                                         <div class="h-full rounded-full bg-[#FF750F]" style="width: <?= $pct ?>%"></div>
                                     </div>
-                                    <span class="ms-3 shrink-0"><?= (int)$row['quantity'] ?> ventes</span>
+                                    <span class="ms-3 shrink-0"><?= (int) $row['quantity'] ?> ventes</span>
                                 </div>
                             </li>
                         <?php endforeach; ?>
@@ -244,14 +324,19 @@ if ($paymentFilter) $qs .= '&payment=' . $paymentFilter;
                             <?php $parts = explode('-', $row['name']); ?>
                             <li>
                                 <div class="flex items-center justify-between text-sm">
-                                    <span class="truncate pr-3 font-medium text-[#1b1b18] dark:text-[#FDFDFC]"><?= $parts[1] ?>/<?= $parts[0] ?></span>
-                                    <span class="shrink-0 text-[#8B4513]"><?= number_format((float)$row['revenue'], 0, ',', ' ') ?> Ar</span>
+                                    <span
+                                        class="truncate pr-3 font-medium text-[#1b1b18] dark:text-[#FDFDFC]"><?= $parts[1] ?>/<?= $parts[0] ?></span>
+                                    <span
+                                        class="shrink-0 text-[#8B4513]"><?= number_format((float) $row['revenue'], 0, ',', ' ') ?>
+                                        Ar</span>
                                 </div>
-                                <div class="mt-1.5 flex items-center justify-between text-xs text-[#706f6c] dark:text-[#A1A09A]">
+                                <div
+                                    class="mt-1.5 flex items-center justify-between text-xs text-[#706f6c] dark:text-[#A1A09A]">
                                     <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-[#F3EFE9] dark:bg-[#0a0a0a]">
-                                        <div class="h-full rounded-full bg-[#1b1b18] dark:bg-[#FDFDFC]" style="width: <?= $pct ?>%"></div>
+                                        <div class="h-full rounded-full bg-[#1b1b18] dark:bg-[#FDFDFC]"
+                                            style="width: <?= $pct ?>%"></div>
                                     </div>
-                                    <span class="ms-3 shrink-0"><?= (int)$row['quantity'] ?> ventes</span>
+                                    <span class="ms-3 shrink-0"><?= (int) $row['quantity'] ?> ventes</span>
                                 </div>
                             </li>
                         <?php endforeach; ?>
@@ -268,7 +353,8 @@ if ($paymentFilter) $qs .= '&payment=' . $paymentFilter;
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-[#e3e3e0] dark:divide-[#3E3E3A]">
                         <thead>
-                            <tr class="text-left text-xs font-medium uppercase tracking-wider text-[#706f6c] dark:text-[#A1A09A]">
+                            <tr
+                                class="text-left text-xs font-medium uppercase tracking-wider text-[#706f6c] dark:text-[#A1A09A]">
                                 <th class="py-2 pr-4">Produit</th>
                                 <th class="px-4 py-2">Catégorie</th>
                                 <th class="px-4 py-2 text-right">Quantité</th>
@@ -278,10 +364,14 @@ if ($paymentFilter) $qs .= '&payment=' . $paymentFilter;
                         <tbody class="divide-y divide-[#e3e3e0] dark:divide-[#3E3E3A]">
                             <?php foreach ($byProduct as $prod): ?>
                                 <tr>
-                                    <td class="py-3 pr-4 text-sm font-medium text-[#1b1b18] dark:text-[#FDFDFC]"><?= htmlspecialchars($prod['product_name']) ?></td>
-                                    <td class="px-4 py-3 text-sm text-[#706f6c] dark:text-[#A1A09A]"><?= htmlspecialchars($prod['category_name']) ?></td>
-                                    <td class="px-4 py-3 text-right text-sm text-[#706f6c] dark:text-[#A1A09A]"><?= (int)$prod['qty'] ?></td>
-                                    <td class="py-3 pl-4 text-right text-sm font-medium text-[#8B4513]"><?= number_format((float)$prod['revenue'], 0, ',', ' ') ?> Ar</td>
+                                    <td class="py-3 pr-4 text-sm font-medium text-[#1b1b18] dark:text-[#FDFDFC]">
+                                        <?= htmlspecialchars($prod['product_name']) ?></td>
+                                    <td class="px-4 py-3 text-sm text-[#706f6c] dark:text-[#A1A09A]">
+                                        <?= htmlspecialchars($prod['category_name']) ?></td>
+                                    <td class="px-4 py-3 text-right text-sm text-[#706f6c] dark:text-[#A1A09A]">
+                                        <?= (int) $prod['qty'] ?></td>
+                                    <td class="py-3 pl-4 text-right text-sm font-medium text-[#8B4513]">
+                                        <?= number_format((float) $prod['revenue'], 0, ',', ' ') ?> Ar</td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -290,7 +380,7 @@ if ($paymentFilter) $qs .= '&payment=' . $paymentFilter;
             <?php endif; ?>
         </div>
 
-        <div class="mt-6 rounded-lg bg-white shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
+        <!-- <div class="mt-6 rounded-lg bg-white shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
             <h3 class="p-6 pb-0 text-lg font-semibold text-[#1b1b18] dark:text-[#FDFDFC]">Transactions</h3>
             <?php if (empty($sales)): ?>
                 <p class="p-6 text-sm text-[#706f6c] dark:text-[#A1A09A]">Aucune vente enregistré   e.</p>
@@ -311,7 +401,10 @@ if ($paymentFilter) $qs .= '&payment=' . $paymentFilter;
                             <tbody class="divide-y divide-[#e3e3e0] dark:divide-[#3E3E3A]">
                                 <?php foreach ($sales as $sale): ?>
                                     <?php $items = $saleItems[$sale['id']] ?? []; ?>
-                                    <?php $itemCount = 0; foreach ($items as $it) { $itemCount += (int)$it['quantity']; } ?>
+                                    <?php $itemCount = 0;
+                                    foreach ($items as $it) {
+                                        $itemCount += (int) $it['quantity'];
+                                    } ?>
                                     <tr class="cursor-pointer transition hover:bg-[#FDFDFC] dark:hover:bg-[#1a1a1a]"
                                         onclick="var d=document.getElementById('detail-<?= $sale['id'] ?>');d.classList.toggle('hidden')">
                                         <td class="py-3 pr-4 text-sm font-medium text-[#8B4513]">#<?= $sale['id'] ?></td>
@@ -320,13 +413,13 @@ if ($paymentFilter) $qs .= '&payment=' . $paymentFilter;
                                         <td class="px-4 py-3 text-center">
                                             <?php
                                             $pm = $sale['payment_method'] ?? 'cash';
-                                            $pmClass = match($pm) { 'mobile_money' => 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400', 'credit' => 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400', default => 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' };
-                                            $pmLabel = match($pm) { 'mobile_money' => 'Mobile', 'credit' => 'Crédit', default => 'Cash' };
+                                            $pmClass = match ($pm) { 'mobile_money' => 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400', 'credit' => 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400', default => 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'};
+                                            $pmLabel = match ($pm) { 'mobile_money' => 'Mobile', 'credit' => 'Crédit', default => 'Cash'};
                                             ?>
                                             <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium <?= $pmClass ?>"><?= $pmLabel ?></span>
                                         </td>
                                         <td class="px-4 py-3 text-sm text-[#706f6c] dark:text-[#A1A09A]"><?= $itemCount ?> article(s)</td>
-                                        <td class="py-3 pl-4 text-right text-sm font-semibold text-[#1b1b18] dark:text-[#FDFDFC]"><?= number_format((float)$sale['total'], 0, ',', ' ') ?> Ar</td>
+                                        <td class="py-3 pl-4 text-right text-sm font-semibold text-[#1b1b18] dark:text-[#FDFDFC]"><?= number_format((float) $sale['total'], 0, ',', ' ') ?> Ar</td>
                                     </tr>
                                     <tr id="detail-<?= $sale['id'] ?>" class="hidden">
                                         <td colspan="6" class="bg-[#FDFDFC] px-6 py-4 dark:bg-[#0a0a0a]">
@@ -338,8 +431,8 @@ if ($paymentFilter) $qs .= '&payment=' . $paymentFilter;
                                                             <span class="ms-2 text-xs text-[#706f6c] dark:text-[#A1A09A]"><?= htmlspecialchars($item['category_name'] ?? '&#8212;') ?></span>
                                                         </span>
                                                         <span class="text-[#706f6c] dark:text-[#A1A09A]">
-                                                            <?= (int)$item['quantity'] ?> &#215; <?= number_format((float)$item['unit_price'], 0, ',', ' ') ?> Ar
-                                                            = <span class="font-medium text-[#8B4513]"><?= number_format((float)$item['unit_price'] * $item['quantity'], 0, ',', ' ') ?> Ar</span>
+                                                            <?= (int) $item['quantity'] ?> &#215; <?= number_format((float) $item['unit_price'], 0, ',', ' ') ?> Ar
+                                                            = <span class="font-medium text-[#8B4513]"><?= number_format((float) $item['unit_price'] * $item['quantity'], 0, ',', ' ') ?> Ar</span>
                                                         </span>
                                                     </li>
                                                 <?php endforeach; ?>
@@ -378,7 +471,7 @@ if ($paymentFilter) $qs .= '&payment=' . $paymentFilter;
                     <?php endif; ?>
                 </div>
             <?php endif; ?>
-        </div>
+        </div> -->
 
     </div>
 </div>
