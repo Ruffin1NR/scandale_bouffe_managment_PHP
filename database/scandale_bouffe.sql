@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Hôte : 127.0.0.1
--- Généré le : lun. 31 août 2026 à 17:41
+-- Généré le : jeu. 17 sep. 2026 à 13:15
 -- Version du serveur : 10.4.32-MariaDB
 -- Version de PHP : 8.2.12
 
@@ -66,6 +66,57 @@ CREATE TABLE `categories` (
 INSERT INTO `categories` (`id`, `name`, `description`, `created_at`, `updated_at`) VALUES
 (5, 'Epicerie', 'Articles de prix fixe', NULL, NULL),
 (6, 'Revente', 'Articles de revente', NULL, NULL);
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `daily_deposits`
+--
+
+CREATE TABLE `daily_deposits` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Déchargement des données de la table `daily_deposits`
+--
+
+INSERT INTO `daily_deposits` (`id`, `user_id`, `amount`, `created_at`) VALUES
+(1, 1, 100000.00, '2026-09-16 18:07:05'),
+(2, 1, 10000.00, '2026-09-16 19:49:32'),
+(3, 1, 10000.00, '2026-09-16 19:50:56'),
+(4, 1, 10000.00, '2026-09-16 20:34:38'),
+(5, 1, 10000.00, '2026-09-16 20:47:45'),
+(6, 1, 20000.00, '2026-09-16 20:49:19'),
+(7, 1, 2000.00, '2026-09-17 13:23:23');
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `daily_reports`
+--
+
+CREATE TABLE `daily_reports` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `report_date` date NOT NULL,
+  `prepaye` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `trosa` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `paiement` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `nofy` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Déchargement des données de la table `daily_reports`
+--
+
+INSERT INTO `daily_reports` (`id`, `user_id`, `report_date`, `prepaye`, `trosa`, `paiement`, `nofy`, `created_at`) VALUES
+(1, 1, '2026-09-16', 0.00, 10000.00, 0.00, 0.00, '2026-09-16 19:41:02'),
+(3, 1, '2026-09-17', 0.00, 1700.00, 0.00, 0.00, '2026-09-17 13:23:23');
 
 -- --------------------------------------------------------
 
@@ -185,21 +236,21 @@ CREATE TABLE `products` (
 
 INSERT INTO `products` (`id`, `name`, `category_id`, `description`, `price`, `quantity`, `min_stock`, `unit`, `image`, `active`, `created_at`, `updated_at`) VALUES
 (57, 'Sachet', 5, NULL, 300.00, 77, 50, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
-(58, 'Cache bouche', 5, NULL, 500.00, 171, 50, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
+(58, 'Cache bouche', 5, NULL, 500.00, 159, 50, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
 (59, 'Mouchoir', 5, NULL, 700.00, 55, 50, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
-(60, 'Cahier 100p PF', 5, NULL, 1700.00, 29, 20, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
-(61, 'Cahier 100p GF', 5, NULL, 3300.00, 29, 20, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
-(62, 'Cahier 200p PF', 5, NULL, 3400.00, 32, 20, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
+(60, 'Cahier 100p PF', 5, NULL, 1700.00, 0, 20, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
+(61, 'Cahier 100p GF', 5, NULL, 3300.00, 23, 20, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
+(62, 'Cahier 200p PF', 5, NULL, 3400.00, 30, 20, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
 (63, 'Cahier 200p GF', 5, NULL, 5500.00, 0, 20, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
 (64, 'Stylo', 5, NULL, 800.00, 178, 50, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
 (65, 'Lion', 5, NULL, 1500.00, 41, 30, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
 (66, 'Doritos PM', 5, NULL, 2000.00, 48, 20, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
-(67, 'Doritos GM', 5, NULL, 3000.00, 76, 20, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
+(67, 'Doritos GM', 5, NULL, 3000.00, 74, 20, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
 (68, 'Salto Chips', 5, NULL, 800.00, 35, 30, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
 (69, 'Valopy', 5, NULL, 200.00, 188, 50, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
 (70, 'Yaourt', 6, NULL, 1000.00, 18, 30, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
 (71, 'Yaourt a boire', 6, NULL, 1500.00, 37, 30, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
-(72, 'Gauffre', 6, NULL, 1000.00, 45, 30, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
+(72, 'Gauffre', 6, NULL, 1000.00, 24, 30, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
 (73, 'Flan', 6, NULL, 1000.00, 31, 30, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
 (74, 'Miel', 6, NULL, 7000.00, 11, 10, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
 (75, 'Tsam PM', 6, NULL, 200.00, 71, 50, 'pcs', NULL, 1, '2026-08-30 19:53:11', NULL),
@@ -318,7 +369,18 @@ INSERT INTO `sales` (`id`, `user_id`, `total`, `created_at`, `updated_at`, `paym
 (59, 1, 16400.00, '2026-08-29 06:15:00', NULL, 'cash'),
 (60, 1, 7500.00, '2026-08-29 09:45:00', NULL, 'cash'),
 (61, 1, 12400.00, '2026-08-31 15:23:21', NULL, 'credit'),
-(62, 1, 4000.00, '2026-08-31 15:25:26', NULL, 'mobile_money');
+(62, 1, 4000.00, '2026-08-31 15:25:26', NULL, 'mobile_money'),
+(63, 1, 7200.00, '2026-09-01 18:11:16', NULL, 'cash'),
+(64, 1, 5000.00, '2026-09-01 18:13:05', NULL, 'credit'),
+(65, 1, 2000.00, '2026-09-16 14:01:19', NULL, 'cash'),
+(66, 1, 5200.00, '2026-09-16 14:21:43', NULL, 'cash'),
+(67, 1, 1500.00, '2026-09-16 14:37:29', NULL, 'cash'),
+(68, 1, 7600.00, '2026-09-16 15:06:01', NULL, 'cash'),
+(69, 1, 5600.00, '2026-09-16 15:06:57', NULL, 'cash'),
+(70, 1, 3300.00, '2026-09-16 17:34:20', NULL, 'cash'),
+(71, 1, 21000.00, '2026-09-16 17:49:19', NULL, 'cash'),
+(72, 1, 40800.00, '2026-09-16 17:55:27', NULL, 'cash'),
+(73, 1, 9700.00, '2026-09-17 10:23:09', NULL, 'cash');
 
 -- --------------------------------------------------------
 
@@ -503,7 +565,28 @@ INSERT INTO `sale_items` (`id`, `sale_id`, `product_id`, `product_name`, `quanti
 (177, 61, 58, NULL, 5, 500.00, NULL, NULL),
 (178, 61, 61, NULL, 3, 3300.00, NULL, NULL),
 (179, 62, 72, NULL, 2, 1000.00, NULL, NULL),
-(180, 62, 73, NULL, 2, 1000.00, NULL, NULL);
+(180, 62, 73, NULL, 2, 1000.00, NULL, NULL),
+(181, 63, 58, NULL, 1, 500.00, NULL, NULL),
+(182, 63, 60, NULL, 2, 1700.00, NULL, NULL),
+(183, 63, 61, NULL, 1, 3300.00, NULL, NULL),
+(184, 64, 60, NULL, 1, 1700.00, NULL, NULL),
+(185, 64, 61, NULL, 1, 3300.00, NULL, NULL),
+(186, 65, 58, NULL, 4, 500.00, NULL, NULL),
+(187, 66, 58, NULL, 1, 500.00, NULL, NULL),
+(188, 66, 60, NULL, 1, 1700.00, NULL, NULL),
+(189, 66, 67, NULL, 1, 3000.00, NULL, NULL),
+(190, 67, 58, NULL, 3, 500.00, NULL, NULL),
+(191, 68, 58, NULL, 2, 500.00, NULL, NULL),
+(192, 68, 61, NULL, 2, 3300.00, NULL, NULL),
+(193, 69, 58, NULL, 1, 500.00, NULL, NULL),
+(194, 69, 60, NULL, 1, 1700.00, NULL, NULL),
+(195, 69, 62, NULL, 1, 3400.00, NULL, NULL),
+(196, 70, 61, NULL, 1, 3300.00, NULL, NULL),
+(197, 71, 72, NULL, 21, 1000.00, NULL, NULL),
+(198, 72, 60, NULL, 24, 1700.00, NULL, NULL),
+(199, 73, 61, NULL, 1, 3300.00, NULL, NULL),
+(200, 73, 62, NULL, 1, 3400.00, NULL, NULL),
+(201, 73, 67, NULL, 1, 3000.00, NULL, NULL);
 
 -- --------------------------------------------------------
 
@@ -583,6 +666,19 @@ ALTER TABLE `cache_locks`
 ALTER TABLE `categories`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `categories_name_unique` (`name`);
+
+--
+-- Index pour la table `daily_deposits`
+--
+ALTER TABLE `daily_deposits`
+  ADD PRIMARY KEY (`id`);
+
+--
+-- Index pour la table `daily_reports`
+--
+ALTER TABLE `daily_reports`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `unique_date_user` (`user_id`,`report_date`);
 
 --
 -- Index pour la table `failed_jobs`
@@ -675,7 +771,19 @@ ALTER TABLE `users`
 -- AUTO_INCREMENT pour la table `categories`
 --
 ALTER TABLE `categories`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
+
+--
+-- AUTO_INCREMENT pour la table `daily_deposits`
+--
+ALTER TABLE `daily_deposits`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
+
+--
+-- AUTO_INCREMENT pour la table `daily_reports`
+--
+ALTER TABLE `daily_reports`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
 
 --
 -- AUTO_INCREMENT pour la table `failed_jobs`
@@ -717,13 +825,13 @@ ALTER TABLE `roles_users`
 -- AUTO_INCREMENT pour la table `sales`
 --
 ALTER TABLE `sales`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=63;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=74;
 
 --
 -- AUTO_INCREMENT pour la table `sale_items`
 --
 ALTER TABLE `sale_items`
-  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=181;
+  MODIFY `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=202;
 
 --
 -- AUTO_INCREMENT pour la table `users`
