@@ -48,8 +48,10 @@ if ($isProtected && !isset($_SESSION['user_id'])) {
 }
 
 // Pages admin-only (pas vendeur)
+// Exception : les vendeurs doivent pouvoir enregistrer leur rapport du jour depuis /pos
+$isSaveReport = in_array($page, ['sales', 'ventes']) && (($pageParams[0] ?? '') === 'save-report');
 $adminPages = ['inventory', 'vendeurs', 'categories', 'sales', 'ventes', 'dashboard'];
-        $isAdminOnly = in_array($page, $adminPages) || ($page === 'inventory' && in_array($pageParams[0] ?? '', ['store', 'update', 'bulk-destroy', 'create', 'edit']));
+        $isAdminOnly = (in_array($page, $adminPages) && !$isSaveReport) || ($page === 'inventory' && in_array($pageParams[0] ?? '', ['store', 'update', 'bulk-destroy', 'create', 'edit']));
 
 if ($isAdminOnly && isset($_SESSION['user_role']) && $_SESSION['user_role'] !== 'administrateur') {
     http_response_code(403);
@@ -409,9 +411,43 @@ switch ($page) {
                     echo json_encode(['success' => false, 'message' => 'Le montant doit être supérieur à 0.']);
                     exit;
                 }
-                query("INSERT INTO daily_deposits (user_id, amount, created_at) VALUES (?, ?, NOW())", [$_SESSION['user_id'], $amount]);
+                query("INSERT INTO daily_deposits (user_id, amount, deposit_date, created_at) VALUES (?, ?, ?, NOW())", [$_SESSION['user_id'], $amount, date('Y-m-d')]);
                 header('Content-Type: application/json');
                 echo json_encode(['success' => true, 'message' => 'Versement de ' . number_format($amount, 0, ',', ' ') . ' Ar enregistré.']);
+                exit;
+
+            case 'save-relais':
+                if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                    header('Content-Type: application/json');
+                    echo json_encode(['success' => false, 'message' => 'Méthode non autorisée.']);
+                    exit;
+                }
+                $relaisAmount = max(0, (float)($_POST['amount'] ?? 0));
+                if ($relaisAmount <= 0) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['success' => false, 'message' => 'Le montant doit être supérieur à 0.']);
+                    exit;
+                }
+                query("INSERT INTO daily_relais (user_id, amount, relais_date, created_at) VALUES (?, ?, ?, NOW())", [$_SESSION['user_id'], $relaisAmount, date('Y-m-d')]);
+                header('Content-Type: application/json');
+                echo json_encode(['success' => true, 'message' => 'Relais de ' . number_format($relaisAmount, 0, ',', ' ') . ' Ar enregistré.']);
+                exit;
+
+            case 'save-paiement':
+                if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                    header('Content-Type: application/json');
+                    echo json_encode(['success' => false, 'message' => 'Méthode non autorisée.']);
+                    exit;
+                }
+                $paiementAmount = max(0, (float)($_POST['amount'] ?? 0));
+                if ($paiementAmount <= 0) {
+                    header('Content-Type: application/json');
+                    echo json_encode(['success' => false, 'message' => 'Le montant doit être supérieur à 0.']);
+                    exit;
+                }
+                query("INSERT INTO daily_paiements (user_id, amount, paiement_date, created_at) VALUES (?, ?, ?, NOW())", [$_SESSION['user_id'], $paiementAmount, date('Y-m-d')]);
+                header('Content-Type: application/json');
+                echo json_encode(['success' => true, 'message' => 'Paiement de ' . number_format($paiementAmount, 0, ',', ' ') . ' Ar enregistré.']);
                 exit;
 
             case 'checkout':
@@ -431,6 +467,7 @@ switch ($page) {
                 }
 
                 // Valider et préparer les articles
+                $payTotals = ['prepaye' => 0, 'trosa' => 0, 'cash' => 0, 'mobile' => 0];
                 foreach ($items as $item) {
                     $product_id = (int)($item['product_id'] ?? 0);
                     $qty = (int)($item['quantity'] ?? 0);
@@ -452,12 +489,18 @@ switch ($page) {
 
                     $lineTotal = $product['price'] * $qty;
                     $total += $lineTotal;
+                    $payMethod = $item['pay_method'] ?? 'cash';
+                    if (!in_array($payMethod, ['cash', 'prepaye', 'trosa', 'mobile'], true)) {
+                        $payMethod = 'cash';
+                    }
+                    $payTotals[$payMethod] += $lineTotal;
                     $validItems[] = [
                         'product_id' => $product['id'],
                         'product_name' => $product['name'],
                         'quantity' => $qty,
                         'unit_price' => $product['price'],
                         'line_total' => $lineTotal,
+                        'pay_method' => $payMethod,
                     ];
                 }
 
@@ -487,8 +530,12 @@ switch ($page) {
 
                     // Enregistrer le versement du jour
                     if ($versement > 0) {
-                        query("INSERT INTO daily_deposits (user_id, amount, created_at) VALUES (?, ?, NOW())", [$_SESSION['user_id'], $versement]);
+                        query("INSERT INTO daily_deposits (user_id, amount, deposit_date, created_at) VALUES (?, ?, ?, NOW())", [$_SESSION['user_id'], $versement, date('Y-m-d')]);
                     }
+
+                    // Ventiler la vente dans le rapport du jour (additif, même date PHP que l'affichage /pos)
+                    $reportDate = date('Y-m-d');
+                    query("INSERT INTO daily_reports (user_id, report_date, prepaye, trosa, paiement, nofy, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE prepaye = prepaye + VALUES(prepaye), trosa = trosa + VALUES(trosa), paiement = paiement + VALUES(paiement), nofy = nofy + VALUES(nofy)", [$_SESSION['user_id'], $reportDate, $payTotals['prepaye'], $payTotals['trosa'], $payTotals['cash'], $payTotals['mobile']]);
 
                     $pdo->commit();
                     $methodLabel = match($paymentMethod) { 'mobile_money' => 'Mobile Money', 'credit' => 'Crédit', default => 'Cash' };

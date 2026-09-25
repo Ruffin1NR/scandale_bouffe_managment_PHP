@@ -42,19 +42,48 @@ if ($dateFrom !== '' || $dateTo !== '') {
     $kpiParams = [];
     if ($dateFrom !== '') { $kpiWhere .= " AND s.created_at >= ?"; $kpiParams[] = $dateFrom . ' 00:00:00'; }
     if ($dateTo !== '') { $kpiWhere .= " AND s.created_at <= ?"; $kpiParams[] = $dateTo . ' 23:59:59'; }
+    // Chaque table a sa colonne jour d'activité (date PHP à la saisie)
     $depositWhere = "WHERE user_id = ?";
     $depositParams = [$_SESSION['user_id']];
-    if ($dateFrom !== '') { $depositWhere .= " AND created_at >= ?"; $depositParams[] = $dateFrom . ' 00:00:00'; }
-    if ($dateTo !== '') { $depositWhere .= " AND created_at <= ?"; $depositParams[] = $dateTo . ' 23:59:59'; }
+    $relaisWhere = "WHERE user_id = ?";
+    $relaisParams = [$_SESSION['user_id']];
+    $paiementWhere = "WHERE user_id = ?";
+    $paiementParams = [$_SESSION['user_id']];
+    if ($dateFrom !== '') { $depositWhere .= " AND deposit_date >= ?"; $depositParams[] = $dateFrom; }
+    if ($dateTo !== '') { $depositWhere .= " AND deposit_date <= ?"; $depositParams[] = $dateTo; }
+    if ($dateFrom !== '') { $relaisWhere .= " AND relais_date >= ?"; $relaisParams[] = $dateFrom; }
+    if ($dateTo !== '') { $relaisWhere .= " AND relais_date <= ?"; $relaisParams[] = $dateTo; }
+    if ($dateFrom !== '') { $paiementWhere .= " AND paiement_date >= ?"; $paiementParams[] = $dateFrom; }
+    if ($dateTo !== '') { $paiementWhere .= " AND paiement_date <= ?"; $paiementParams[] = $dateTo; }
+    // Les rapports sont rattachés au jour d'activité (report_date), pas à l'heure de saisie (created_at)
+    $reportWhere = "WHERE user_id = ?";
+    $reportParams = [$_SESSION['user_id']];
+    if ($dateFrom !== '') { $reportWhere .= " AND report_date >= ?"; $reportParams[] = $dateFrom; }
+    if ($dateTo !== '') { $reportWhere .= " AND report_date <= ?"; $reportParams[] = $dateTo; }
 } else {
     $kpiWhere = "WHERE 1=1";
     $kpiParams = [];
     $depositWhere = "WHERE user_id = ?";
     $depositParams = [$_SESSION['user_id']];
+    $relaisWhere = "WHERE user_id = ?";
+    $relaisParams = [$_SESSION['user_id']];
+    $paiementWhere = "WHERE user_id = ?";
+    $paiementParams = [$_SESSION['user_id']];
+    $reportWhere = "WHERE user_id = ?";
+    $reportParams = [$_SESSION['user_id']];
 }
 $venteJour = fetchAssoc("SELECT COALESCE(SUM(total), 0) as total FROM sales s $kpiWhere", $kpiParams);
-$versement = fetchAssoc("SELECT COALESCE(SUM(amount), 0) as total FROM daily_deposits $depositWhere", $depositParams);
-$trosa = fetchAssoc("SELECT COALESCE(SUM(trosa), 0) as total FROM daily_reports $depositWhere", $depositParams);
+// KPI Versement = dernière saisie de la période (miroir de l'input /pos), pas la somme
+$versement = fetchAssoc("SELECT COALESCE((SELECT amount FROM daily_deposits $depositWhere ORDER BY deposit_date DESC, id DESC LIMIT 1), 0) as total", $depositParams);
+$trosa = fetchAssoc("SELECT COALESCE(SUM(trosa), 0) as total FROM daily_reports $reportWhere", $reportParams);
+// Ventilation du rapport (prépayé + mobile money) sur le même périmètre (jour d'activité)
+$reportVent = fetchAssoc("SELECT COALESCE(SUM(prepaye), 0) as prepaye, COALESCE(SUM(nofy), 0) as nofy FROM daily_reports $reportWhere", $reportParams);
+// Dépenses "Paiement" et "Relais" : dernières saisies de la période (cohérence avec l'Écart)
+$relaisKpi = fetchAssoc("SELECT COALESCE((SELECT amount FROM daily_relais $relaisWhere ORDER BY relais_date DESC, id DESC LIMIT 1), 0) as total", $relaisParams);
+$depensePaiement = fetchAssoc("SELECT COALESCE((SELECT amount FROM daily_paiements $paiementWhere ORDER BY paiement_date DESC, id DESC LIMIT 1), 0) as total", $paiementParams);
+// Écart de caisse (formule POS) : versement - vente + trosa + prépayé - paiement - relais + mobile money
+// NB : "paiement" ici = dépenses daily_paiements, pas la colonne daily_reports.paiement (Cash)
+$ecartValeur = (float) $versement['total'] - (float) $venteJour['total'] + (float) $trosa['total'] + (float) $reportVent['prepaye'] - (float) $depensePaiement['total'] - (float) $relaisKpi['total'] + (float) $reportVent['nofy'];
 $totalResult = fetchAssoc("SELECT COUNT(DISTINCT s.id) as count FROM sales s JOIN sale_items si ON si.sale_id = s.id LEFT JOIN products p ON si.product_id = p.id $where", $params);
 $total = (int) ($totalResult['count'] ?? 0);
 $totalPages = max(1, (int) ceil($total / $perPage));
@@ -73,6 +102,19 @@ $byCategory = fetchAllAssoc("SELECT COALESCE(c.name, 'Sans catégorie') as name,
 $byDay = fetchAllAssoc("SELECT DATE(s.created_at) as name, COUNT(DISTINCT s.id) as quantity, SUM(si.quantity * si.unit_price) as revenue FROM sale_items si JOIN sales s ON si.sale_id = s.id LEFT JOIN products p ON si.product_id = p.id $where GROUP BY DATE(s.created_at) ORDER BY name DESC LIMIT 7", $params);
 $byWeek = fetchAllAssoc("SELECT CONCAT(YEARWEEK(s.created_at, 1), '') as name, COUNT(DISTINCT s.id) as quantity, SUM(si.quantity * si.unit_price) as revenue FROM sale_items si JOIN sales s ON si.sale_id = s.id LEFT JOIN products p ON si.product_id = p.id $where GROUP BY YEARWEEK(s.created_at, 1) ORDER BY name DESC LIMIT 8", $params);
 $byMonth = fetchAllAssoc("SELECT DATE_FORMAT(s.created_at, '%Y-%m') as name, COUNT(DISTINCT s.id) as quantity, SUM(si.quantity * si.unit_price) as revenue FROM sale_items si JOIN sales s ON si.sale_id = s.id LEFT JOIN products p ON si.product_id = p.id $where GROUP BY DATE_FORMAT(s.created_at, '%Y-%m') ORDER BY name DESC LIMIT 6", $params);
+// Ventes de produits par semaine / par mois (mêmes filtres que le reste de la page)
+$byProductWeekRows = fetchAllAssoc("SELECT CONCAT(YEARWEEK(s.created_at, 1), '') as period, p.name AS product_name, COALESCE(c.name, 'Sans catégorie') as category_name, SUM(si.quantity) as qty, SUM(si.quantity * si.unit_price) as revenue FROM sale_items si JOIN sales s ON si.sale_id = s.id LEFT JOIN products p ON si.product_id = p.id LEFT JOIN categories c ON p.category_id = c.id $where GROUP BY YEARWEEK(s.created_at, 1), p.name, c.name ORDER BY period DESC, revenue DESC", $params);
+$byProductMonthRows = fetchAllAssoc("SELECT DATE_FORMAT(s.created_at, '%Y-%m') as period, p.name AS product_name, COALESCE(c.name, 'Sans catégorie') as category_name, SUM(si.quantity) as qty, SUM(si.quantity * si.unit_price) as revenue FROM sale_items si JOIN sales s ON si.sale_id = s.id LEFT JOIN products p ON si.product_id = p.id LEFT JOIN categories c ON p.category_id = c.id $where GROUP BY DATE_FORMAT(s.created_at, '%Y-%m'), p.name, c.name ORDER BY period DESC, revenue DESC", $params);
+$byProductWeek = [];
+foreach ($byProductWeekRows as $row) {
+    $byProductWeek[$row['period']][] = $row;
+}
+$byProductWeek = array_slice($byProductWeek, 0, 8, true);
+$byProductMonth = [];
+foreach ($byProductMonthRows as $row) {
+    $byProductMonth[$row['period']][] = $row;
+}
+$byProductMonth = array_slice($byProductMonth, 0, 6, true);
 $allProducts = fetchAllAssoc("SELECT id, name FROM products WHERE active = 1 ORDER BY name");
 $allCategories = fetchAllAssoc("SELECT id, name FROM categories ORDER BY name");
 $maxCatRev = !empty($byCategory) ? max(array_column($byCategory, 'revenue')) : 1;
@@ -205,7 +247,7 @@ $savedReport = fetchAssoc("SELECT prepaye, trosa, paiement, nofy FROM daily_repo
             </div>
             <div class="rounded-lg bg-white p-6 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
                 <?php
-                $ecart = (float) $venteJour['total'] - (float) $versement['total'];
+                $ecart = $ecartValeur;
                 $ecartColor = $ecart >= 0 ? 'text-[#16a34a]' : 'text-[#dc2626]';
                 ?>
                 <p class="text-3xl font-bold <?= $ecartColor ?>"><?= number_format($ecart, 0, ',', ' ') ?> Ar</p>
@@ -378,6 +420,67 @@ $savedReport = fetchAssoc("SELECT prepaye, trosa, paiement, nofy FROM daily_repo
                     </table>
                 </div>
             <?php endif; ?>
+        </div>
+
+        <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <div class="rounded-lg bg-white p-6 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
+                <h3 class="mb-4 text-lg font-semibold text-[#1b1b18] dark:text-[#FDFDFC]">Ventes produits par semaine</h3>
+                <?php if (empty($byProductWeek)): ?>
+                    <p class="text-sm text-[#706f6c] dark:text-[#A1A09A]">Aucune donnée sur la période.</p>
+                <?php else: ?>
+                    <div class="max-h-96 space-y-5 overflow-y-auto pr-1">
+                        <?php foreach ($byProductWeek as $period => $items): ?>
+                            <div>
+                                <p class="mb-2 text-xs font-semibold uppercase tracking-wider text-[#8B4513]"><?= htmlspecialchars(formatWeekLabel($period)) ?></p>
+                                <table class="min-w-full divide-y divide-[#e3e3e0] dark:divide-[#3E3E3A]">
+                                    <tbody class="divide-y divide-[#e3e3e0] dark:divide-[#3E3E3A]">
+                                        <?php foreach ($items as $prod): ?>
+                                            <tr>
+                                                <td class="py-2 pr-4 text-sm font-medium text-[#1b1b18] dark:text-[#FDFDFC]">
+                                                    <?= htmlspecialchars($prod['product_name'] ?? '—') ?>
+                                                    <span class="ms-2 text-xs font-normal text-[#706f6c] dark:text-[#A1A09A]"><?= htmlspecialchars($prod['category_name']) ?></span>
+                                                </td>
+                                                <td class="px-4 py-2 text-right text-sm text-[#706f6c] dark:text-[#A1A09A]"><?= (int) $prod['qty'] ?></td>
+                                                <td class="py-2 pl-4 text-right text-sm font-medium text-[#8B4513]"><?= number_format((float) $prod['revenue'], 0, ',', ' ') ?> Ar</td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </div>
+
+            <div class="rounded-lg bg-white p-6 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
+                <h3 class="mb-4 text-lg font-semibold text-[#1b1b18] dark:text-[#FDFDFC]">Ventes produits par mois</h3>
+                <?php if (empty($byProductMonth)): ?>
+                    <p class="text-sm text-[#706f6c] dark:text-[#A1A09A]">Aucune donnée sur la période.</p>
+                <?php else: ?>
+                    <div class="max-h-96 space-y-5 overflow-y-auto pr-1">
+                        <?php foreach ($byProductMonth as $period => $items): ?>
+                            <?php $parts = explode('-', $period); ?>
+                            <div>
+                                <p class="mb-2 text-xs font-semibold uppercase tracking-wider text-[#8B4513]"><?= $parts[1] ?>/<?= $parts[0] ?></p>
+                                <table class="min-w-full divide-y divide-[#e3e3e0] dark:divide-[#3E3E3A]">
+                                    <tbody class="divide-y divide-[#e3e3e0] dark:divide-[#3E3E3A]">
+                                        <?php foreach ($items as $prod): ?>
+                                            <tr>
+                                                <td class="py-2 pr-4 text-sm font-medium text-[#1b1b18] dark:text-[#FDFDFC]">
+                                                    <?= htmlspecialchars($prod['product_name'] ?? '—') ?>
+                                                    <span class="ms-2 text-xs font-normal text-[#706f6c] dark:text-[#A1A09A]"><?= htmlspecialchars($prod['category_name']) ?></span>
+                                                </td>
+                                                <td class="px-4 py-2 text-right text-sm text-[#706f6c] dark:text-[#A1A09A]"><?= (int) $prod['qty'] ?></td>
+                                                <td class="py-2 pl-4 text-right text-sm font-medium text-[#8B4513]"><?= number_format((float) $prod['revenue'], 0, ',', ' ') ?> Ar</td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </div>
         </div>
 
         <!-- <div class="mt-6 rounded-lg bg-white shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">

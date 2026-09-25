@@ -77,6 +77,7 @@ CREATE TABLE `daily_deposits` (
   `id` int(11) NOT NULL,
   `user_id` int(11) NOT NULL,
   `amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `deposit_date` date NOT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
@@ -84,14 +85,42 @@ CREATE TABLE `daily_deposits` (
 -- Déchargement des données de la table `daily_deposits`
 --
 
-INSERT INTO `daily_deposits` (`id`, `user_id`, `amount`, `created_at`) VALUES
-(1, 1, 100000.00, '2026-09-16 18:07:05'),
-(2, 1, 10000.00, '2026-09-16 19:49:32'),
-(3, 1, 10000.00, '2026-09-16 19:50:56'),
-(4, 1, 10000.00, '2026-09-16 20:34:38'),
-(5, 1, 10000.00, '2026-09-16 20:47:45'),
-(6, 1, 20000.00, '2026-09-16 20:49:19'),
-(7, 1, 2000.00, '2026-09-17 13:23:23');
+INSERT INTO `daily_deposits` (`id`, `user_id`, `amount`, `deposit_date`, `created_at`) VALUES
+(1, 1, 100000.00, '2026-09-16', '2026-09-16 18:07:05'),
+(2, 1, 10000.00, '2026-09-16', '2026-09-16 19:49:32'),
+(3, 1, 10000.00, '2026-09-16', '2026-09-16 19:50:56'),
+(4, 1, 10000.00, '2026-09-16', '2026-09-16 20:34:38'),
+(5, 1, 10000.00, '2026-09-16', '2026-09-16 20:47:45'),
+(6, 1, 20000.00, '2026-09-16', '2026-09-16 20:49:19'),
+(7, 1, 2000.00, '2026-09-17', '2026-09-17 13:23:23');
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `daily_relais`
+--
+
+CREATE TABLE `daily_relais` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `relais_date` date NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Structure de la table `daily_paiements`
+--
+
+CREATE TABLE `daily_paiements` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `paiement_date` date NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
 
@@ -671,7 +700,24 @@ ALTER TABLE `categories`
 -- Index pour la table `daily_deposits`
 --
 ALTER TABLE `daily_deposits`
-  ADD PRIMARY KEY (`id`);
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `daily_deposits_deposit_date` (`user_id`,`deposit_date`);
+
+--
+-- Index pour la table `daily_relais`
+--
+ALTER TABLE `daily_relais`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `daily_relais_user_id` (`user_id`),
+  ADD KEY `daily_relais_relais_date` (`user_id`,`relais_date`);
+
+--
+-- Index pour la table `daily_paiements`
+--
+ALTER TABLE `daily_paiements`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `daily_paiements_user_id` (`user_id`),
+  ADD KEY `daily_paiements_paiement_date` (`user_id`,`paiement_date`);
 
 --
 -- Index pour la table `daily_reports`
@@ -778,6 +824,18 @@ ALTER TABLE `categories`
 --
 ALTER TABLE `daily_deposits`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
+
+--
+-- AUTO_INCREMENT pour la table `daily_relais`
+--
+ALTER TABLE `daily_relais`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=1;
+
+--
+-- AUTO_INCREMENT pour la table `daily_paiements`
+--
+ALTER TABLE `daily_paiements`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=1;
 
 --
 -- AUTO_INCREMENT pour la table `daily_reports`
