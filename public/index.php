@@ -128,7 +128,14 @@ switch ($page) {
                 $name = trim($_POST['name'] ?? '');
                 $price = (float)($_POST['price'] ?? 0);
                 $description = trim($_POST['description'] ?? '');
-                $category_id = (int)($_POST['category_id'] ?? 0);
+                $categoryRaw = trim((string)($_POST['category_id'] ?? ''));
+                $category_id = (int)$categoryRaw;
+                $catExists = $category_id > 0 ? fetchAssoc("SELECT id FROM categories WHERE id = ?", [$category_id]) : [];
+                if (empty($catExists)) {
+                    $_SESSION['error'] = "La catégorie est obligatoire. Veuillez en choisir une dans la liste.";
+                    header('Location: ' . url('inventory/create'));
+                    exit;
+                }
                 $unit = $_POST['unit'] ?? 'pcs';
                 $min_stock = (int)($_POST['min_stock'] ?? 5);
                 $quantity = (float)($_POST['quantity'] ?? 0);
@@ -159,8 +166,12 @@ switch ($page) {
                 }
 
                 if ($name !== '') {
-                    query("INSERT INTO products (name, description, price, category_id, unit, min_stock, quantity, image, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())", [$name, $description, $price, $category_id, $unit, $min_stock, $quantity, $image]);
-                    $_SESSION['success'] = "Produit créé avec succès.";
+                    try {
+                        query("INSERT INTO products (name, description, price, category_id, unit, min_stock, quantity, image, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())", [$name, $description, $price, $category_id, $unit, $min_stock, $quantity, $image]);
+                        $_SESSION['success'] = "Produit créé avec succès.";
+                    } catch (Exception $e) {
+                        $_SESSION['error'] = "Impossible de créer le produit. Vérifiez les informations saisies.";
+                    }
                 } else {
                     $_SESSION['error'] = "Le nom du produit est obligatoire.";
                 }
@@ -180,7 +191,14 @@ switch ($page) {
                 $name = trim($_POST['name'] ?? '');
                 $price = (float)($_POST['price'] ?? 0);
                 $description = trim($_POST['description'] ?? '');
-                $category_id = (int)($_POST['category_id'] ?? 0);
+                $categoryRaw = trim((string)($_POST['category_id'] ?? ''));
+                $category_id = (int)$categoryRaw;
+                $catExists = $category_id > 0 ? fetchAssoc("SELECT id FROM categories WHERE id = ?", [$category_id]) : [];
+                if (empty($catExists)) {
+                    $_SESSION['error'] = "La catégorie est obligatoire. Veuillez en choisir une dans la liste.";
+                    header('Location: ' . url('inventory/edit?id=' . $id));
+                    exit;
+                }
                 $unit = $_POST['unit'] ?? 'pcs';
                 $min_stock = (int)($_POST['min_stock'] ?? 0);
                 $quantity = (float)($_POST['quantity'] ?? 0);
@@ -215,8 +233,12 @@ switch ($page) {
                 }
 
                 if ($name !== '') {
-                    query("UPDATE products SET name = ?, description = ?, price = ?, category_id = ?, unit = ?, min_stock = ?, quantity = ?, image = ?, updated_at = NOW() WHERE id = ?", [$name, $description, $price, $category_id, $unit, $min_stock, $quantity, $image, $id]);
-                    $_SESSION['success'] = "Produit modifié avec succès.";
+                    try {
+                        query("UPDATE products SET name = ?, description = ?, price = ?, category_id = ?, unit = ?, min_stock = ?, quantity = ?, image = ?, updated_at = NOW() WHERE id = ?", [$name, $description, $price, $category_id, $unit, $min_stock, $quantity, $image, $id]);
+                        $_SESSION['success'] = "Produit modifié avec succès.";
+                    } catch (Exception $e) {
+                        $_SESSION['error'] = "Impossible de modifier le produit. Vérifiez les informations saisies.";
+                    }
                 } else {
                     $_SESSION['error'] = "Le nom du produit est obligatoire.";
                 }
@@ -466,8 +488,16 @@ switch ($page) {
                     exit;
                 }
 
-                // Valider et préparer les articles
+                // Valider et préparer les articles (une vente peut mixer les moyens :
+                // plusieurs lignes pour le même produit, ex. Café ×3 cash + ×2 prépayé)
                 $payTotals = ['prepaye' => 0, 'trosa' => 0, 'cash' => 0, 'mobile' => 0];
+                $qtyByProduct = [];
+                foreach ($items as $item) {
+                    $product_id = (int)($item['product_id'] ?? 0);
+                    $qty = (int)($item['quantity'] ?? 0);
+                    if ($product_id <= 0 || $qty <= 0) continue;
+                    $qtyByProduct[$product_id] = ($qtyByProduct[$product_id] ?? 0) + $qty;
+                }
                 foreach ($items as $item) {
                     $product_id = (int)($item['product_id'] ?? 0);
                     $qty = (int)($item['quantity'] ?? 0);
@@ -481,8 +511,9 @@ switch ($page) {
                         header('Location: ' . url('pos'));
                         exit;
                     }
-                    if ($product['quantity'] < $qty) {
-                        $_SESSION['error'] = "Stock insuffisant pour \"" . $product['name'] . "\" (disponible : " . $product['quantity'] . ").";
+                    // Stock contrôlé sur le cumul du produit (toutes méthodes confondues)
+                    if ($product['quantity'] < $qtyByProduct[$product_id]) {
+                        $_SESSION['error'] = "Stock insuffisant pour \"" . $product['name'] . "\" (demandé : " . $qtyByProduct[$product_id] . ", disponible : " . $product['quantity'] . ").";
                         header('Location: ' . url('pos'));
                         exit;
                     }
@@ -521,8 +552,8 @@ switch ($page) {
                     $saleId = $pdo->lastInsertId();
 
                     foreach ($validItems as $item) {
-                        // Créer la ligne de vente
-                        query("INSERT INTO sale_items (sale_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)", [$saleId, $item['product_id'], $item['quantity'], $item['unit_price']]);
+                        // Créer la ligne de vente (avec son moyen de paiement)
+                        query("INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, pay_method) VALUES (?, ?, ?, ?, ?)", [$saleId, $item['product_id'], $item['quantity'], $item['unit_price'], $item['pay_method']]);
 
                         // Décrémenter le stock
                         query("UPDATE products SET quantity = quantity - ? WHERE id = ?", [$item['quantity'], $item['product_id']]);

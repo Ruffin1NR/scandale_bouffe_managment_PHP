@@ -156,7 +156,7 @@ require __DIR__ . '/../layout.php';
                         <?php echo (int)$product['quantity']; ?> <?php echo htmlspecialchars($product['unit']); ?> en stock
                     </p>
                 </div>
-                <div class="qty-controls hidden w-[112px] shrink-0 flex-wrap items-center justify-center gap-1">
+                <div class="qty-controls hidden w-[112px] shrink-0 flex-wrap items-center justify-center gap-1" style="width: 50%;">
                     <button type="button" onclick="gridUpdateQty(<?php echo $product['id']; ?>, -1)" class="flex h-7 w-7 items-center justify-center rounded-lg border border-[#e3e3e0] text-sm text-[#1b1b18] transition hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:text-[#FDFDFC]">-</button>
                     <span class="grid-qty w-8 text-center text-sm font-bold text-[#8B4513]">0</span>
                     <button type="button" onclick="gridUpdateQty(<?php echo $product['id']; ?>, 1)" class="grid-plus flex h-7 w-7 items-center justify-center rounded-lg border border-[#e3e3e0] text-sm text-[#1b1b18] transition hover:border-[#8B4513] hover:text-[#8B4513] disabled:opacity-40 dark:border-[#3E3E3A] dark:text-[#FDFDFC]">+</button>
@@ -205,6 +205,9 @@ require __DIR__ . '/../layout.php';
 <script>
 const allProducts = <?php echo json_encode($products); ?>;
 let cart = {};
+// Une ligne de panier = un couple (produit, moyen de paiement), ex. Café ×3 cash + ×2 prépayé.
+// Méthode sélectionnée par carte (pour les ajouts / ajustements) : 'cash' par défaut.
+let cardSel = {};
 
 // Vente du jour (PHP, figée au chargement ; MAJ au rechargement après checkout)
 const VENTE_JOUR = <?php echo (float)($todaySales['revenue'] ?? 0); ?>;
@@ -215,18 +218,37 @@ const PAY_BTN_BASE = 'pay-btn rounded-md border px-1 py-1 text-[10px] font-mediu
 const PAY_BTN_ACTIVE = ' border-[#8B4513] bg-[#8B4513] text-[#FDFDFC]';
 const PAY_BTN_INACTIVE = ' border-[#e3e3e0] bg-white text-[#706f6c] hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:bg-transparent dark:text-[#A1A09A]';
 
+function lineKey(productId, method) {
+    return productId + '_' + method;
+}
+
+function selectedMethod(productId) {
+    const m = cardSel[productId];
+    return PAY_LABELS[m] ? m : DEFAULT_PAY;
+}
+
+function productLines(productId) {
+    return Object.values(cart).filter(item => item.id === productId);
+}
+
+function productTotalQty(productId) {
+    return productLines(productId).reduce((sum, item) => sum + item.quantity, 0);
+}
+
 function setPayMethod(productId, method) {
     if (!PAY_LABELS[method]) return;
-    if (!cart[productId]) return;
-    cart[productId].pay_method = method;
+    cardSel[productId] = method;
     syncAll();
 }
 
-function syncPayButtons(card, currentMethod) {
-    const active = currentMethod || DEFAULT_PAY;
+function syncPayButtons(card, productId) {
+    const sel = selectedMethod(productId);
+    const qtyByMethod = {};
+    productLines(productId).forEach(item => { qtyByMethod[item.pay_method] = item.quantity; });
     card.querySelectorAll('.pay-methods button[data-pay]').forEach(btn => {
-        const isActive = btn.dataset.pay === active;
-        btn.className = PAY_BTN_BASE + (isActive ? PAY_BTN_ACTIVE : PAY_BTN_INACTIVE);
+        const m = btn.dataset.pay;
+        btn.className = PAY_BTN_BASE + (m === sel ? PAY_BTN_ACTIVE : PAY_BTN_INACTIVE);
+        btn.textContent = PAY_LABELS[m] + (qtyByMethod[m] > 0 ? ' · ' + qtyByMethod[m] : '');
     });
 }
 
@@ -238,21 +260,24 @@ function gridUpdateQty(productId, delta) {
     const card = document.querySelector(`.product-card[data-product-id="${productId}"]`);
     if (!card || card.dataset.disabled === '1') return;
     const max = parseInt(card.dataset.max);
-    const current = cart[productId] ? cart[productId].quantity : 0;
+    const method = selectedMethod(productId);
+    const key = lineKey(productId, method);
+    const current = cart[key] ? cart[key].quantity : 0;
     const newQty = current + delta;
     if (newQty < 0) return;
-    if (newQty > max) return;
+    if (productTotalQty(productId) - current + newQty > max) return;
     if (newQty === 0) {
-        delete cart[productId];
+        delete cart[key];
     } else {
-        cart[productId] = {
+        cart[key] = {
+            key: key,
             id: productId,
             name: card.dataset.name,
             price: parseFloat(card.dataset.price),
             max_quantity: max,
             unit: card.dataset.unit,
             quantity: newQty,
-            pay_method: (cart[productId] && cart[productId].pay_method) || DEFAULT_PAY
+            pay_method: method
         };
     }
     syncAll();
@@ -261,38 +286,44 @@ function gridUpdateQty(productId, delta) {
 function addToCart(product) {
     if (product.quantity <= 0) return;
     const id = product.id;
-    if (!cart[id]) {
-        cart[id] = {
+    const max = parseInt(product.quantity);
+    if (productTotalQty(id) >= max) return;
+    const method = selectedMethod(id);
+    const key = lineKey(id, method);
+    if (!cart[key]) {
+        cart[key] = {
+            key: key,
             id: product.id,
             name: product.name,
             price: parseFloat(product.price),
-            max_quantity: parseInt(product.quantity),
+            max_quantity: max,
             unit: product.unit,
             quantity: 1,
-            pay_method: DEFAULT_PAY
+            pay_method: method
         };
     } else {
-        if (cart[id].quantity >= cart[id].max_quantity) return;
-        cart[id].quantity++;
+        if (productTotalQty(id) >= cart[key].max_quantity) return;
+        cart[key].quantity++;
     }
     syncAll();
 }
 
-function removeFromCart(productId) {
-    delete cart[productId];
+function removeFromCart(key) {
+    delete cart[key];
     syncAll();
 }
 
-function updateQuantity(productId, delta) {
-    if (!cart[productId]) return;
-    cart[productId].quantity += delta;
-    if (cart[productId].quantity <= 0) {
-        removeFromCart(productId);
+function updateQuantity(key, delta) {
+    const item = cart[key];
+    if (!item) return;
+    const newQty = item.quantity + delta;
+    if (newQty < 0) return;
+    if (productTotalQty(item.id) - item.quantity + newQty > item.max_quantity) return;
+    if (newQty === 0) {
+        removeFromCart(key);
         return;
     }
-    if (cart[productId].quantity > cart[productId].max_quantity) {
-        cart[productId].quantity = cart[productId].max_quantity;
-    }
+    item.quantity = newQty;
     syncAll();
 }
 
@@ -312,22 +343,26 @@ function syncGridCards() {
         const totalSpan = card.querySelector('.grid-total');
         const price = parseFloat(card.dataset.price);
         const max = parseInt(card.dataset.max);
-        if (cart[id]) {
+        const totalQty = productTotalQty(id);
+        const selKey = lineKey(id, selectedMethod(id));
+        if (totalQty > 0) {
             qtyControls.classList.remove('hidden');
             qtyControls.classList.add('flex');
             addIcon.classList.add('hidden');
-            qtySpan.textContent = cart[id].quantity;
-            totalSpan.textContent = formatCurrency(price * cart[id].quantity);
-            plusBtn.disabled = cart[id].quantity >= max;
-            syncPayButtons(card, cart[id].pay_method);
+            qtySpan.textContent = cart[selKey] ? cart[selKey].quantity : 0;
+            qtySpan.title = 'Total toutes méthodes : ' + totalQty;
+            totalSpan.textContent = formatCurrency(price * totalQty);
+            plusBtn.disabled = totalQty >= max;
+            syncPayButtons(card, id);
         } else {
             qtyControls.classList.add('hidden');
             qtyControls.classList.remove('flex');
             addIcon.classList.remove('hidden');
             qtySpan.textContent = '0';
+            qtySpan.title = '';
             totalSpan.textContent = '';
             plusBtn.disabled = false;
-            syncPayButtons(card, DEFAULT_PAY);
+            syncPayButtons(card, id);
         }
     });
 }
@@ -364,22 +399,23 @@ function renderCart() {
         itemCount += item.quantity;
         const payMethod = PAY_LABELS[item.pay_method] ? item.pay_method : DEFAULT_PAY;
         const payLabel = PAY_LABELS[payMethod];
+        const prodTot = productTotalQty(item.id);
         html += '<li class="flex items-center justify-between gap-3">' +
             '<div class="min-w-0">' +
                 '<p class="truncate text-sm font-medium text-[#1b1b18] dark:text-[#FDFDFC]">' + item.name + '</p>' +
-                '<p class="text-xs text-[#706f6c] dark:text-[#A1A09A]">' + formatCurrency(item.price) + ' / ' + item.unit + '</p>' +
+                '<p class="text-xs text-[#706f6c] dark:text-[#A1A09A]">' + formatCurrency(item.price) + ' / ' + item.unit + ' = ' + formatCurrency(lineTotal) + '</p>' +
                 '<span class="mt-1 inline-block rounded-md border border-[#8B4513] bg-[#FDF3EA] px-1.5 py-0.5 text-[10px] font-semibold text-[#8B4513] dark:bg-transparent">' + payLabel + '</span>' +
             '</div>' +
             '<div class="flex items-center gap-1">' +
-                '<button type="button" onclick="updateQuantity(' + item.id + ', -1)" class="flex h-7 w-7 items-center justify-center rounded-lg border border-[#e3e3e0] text-sm text-[#1b1b18] transition hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:text-[#FDFDFC]">\u2212</button>' +
+                '<button type="button" onclick="updateQuantity(\'' + item.key + '\', -1)" class="flex h-7 w-7 items-center justify-center rounded-lg border border-[#e3e3e0] text-sm text-[#1b1b18] transition hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:text-[#FDFDFC]">\u2212</button>' +
                 '<span class="w-8 text-center text-sm font-semibold text-[#1b1b18] dark:text-[#FDFDFC]">' + item.quantity + '</span>' +
-                '<button type="button" onclick="updateQuantity(' + item.id + ', 1)" ' + (item.quantity >= item.max_quantity ? 'disabled' : '') + ' class="flex h-7 w-7 items-center justify-center rounded-lg border border-[#e3e3e0] text-sm text-[#1b1b18] transition hover:border-[#8B4513] hover:text-[#8B4513] disabled:opacity-40 dark:border-[#3E3E3A] dark:text-[#FDFDFC]">+</button>' +
+                '<button type="button" onclick="updateQuantity(\'' + item.key + '\', 1)" ' + (prodTot >= item.max_quantity ? 'disabled' : '') + ' class="flex h-7 w-7 items-center justify-center rounded-lg border border-[#e3e3e0] text-sm text-[#1b1b18] transition hover:border-[#8B4513] hover:text-[#8B4513] disabled:opacity-40 dark:border-[#3E3E3A] dark:text-[#FDFDFC]">+</button>' +
             '</div>' +
-            '<button type="button" onclick="removeFromCart(' + item.id + ')" class="ml-2 text-sm text-red-500 hover:text-red-700 transition">\u2715</button>' +
+            '<button type="button" onclick="removeFromCart(\'' + item.key + '\')" class="ml-2 text-sm text-red-500 hover:text-red-700 transition">\u2715</button>' +
         '</li>';
-        inputs += '<input type="hidden" name="items[' + item.id + '][product_id]" value="' + item.id + '">' +
-                   '<input type="hidden" name="items[' + item.id + '][quantity]" value="' + item.quantity + '">' +
-                   '<input type="hidden" name="items[' + item.id + '][pay_method]" value="' + payMethod + '">';
+        inputs += '<input type="hidden" name="items[' + item.key + '][product_id]" value="' + item.id + '">' +
+                   '<input type="hidden" name="items[' + item.key + '][quantity]" value="' + item.quantity + '">' +
+                   '<input type="hidden" name="items[' + item.key + '][pay_method]" value="' + payMethod + '">';
     });
 
     cartItems.innerHTML = html;

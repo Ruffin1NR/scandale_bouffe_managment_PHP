@@ -55,8 +55,8 @@ require __DIR__ . '/../layout.php';
             <div class="sm:grid grid-cols-2 gap-4">
                 <div>
                     <label class="block text-sm font-medium text-[#706f6c] dark:text-[#A1A09A] mb-2">Catégorie</label>
-                    <select name="category_id" class="w-full input-field">
-                        <option value="0">Aucune</option>
+                    <select name="category_id" required class="w-full input-field">
+                        <option value="">Sélectionner une catégorie</option>
                         <?php
                         $allCategories = fetchAllAssoc("SELECT id, name FROM categories ORDER BY name");
                         foreach ($allCategories as $cat):

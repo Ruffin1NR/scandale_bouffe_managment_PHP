@@ -81,6 +81,14 @@ $reportVent = fetchAssoc("SELECT COALESCE(SUM(prepaye), 0) as prepaye, COALESCE(
 // Dépenses "Paiement" et "Relais" : dernières saisies de la période (cohérence avec l'Écart)
 $relaisKpi = fetchAssoc("SELECT COALESCE((SELECT amount FROM daily_relais $relaisWhere ORDER BY relais_date DESC, id DESC LIMIT 1), 0) as total", $relaisParams);
 $depensePaiement = fetchAssoc("SELECT COALESCE((SELECT amount FROM daily_paiements $paiementWhere ORDER BY paiement_date DESC, id DESC LIMIT 1), 0) as total", $paiementParams);
+// Intervalle multi-jours explicite : cumul honnête (somme) au lieu de la dernière saisie,
+// pour que l'Écart de la période égale la somme des écarts journaliers
+$isMultiDay = ($dateFrom !== '' && $dateTo !== '' && $dateFrom !== $dateTo);
+if ($isMultiDay) {
+    $versement = fetchAssoc("SELECT COALESCE(SUM(amount), 0) as total FROM daily_deposits $depositWhere", $depositParams);
+    $relaisKpi = fetchAssoc("SELECT COALESCE(SUM(amount), 0) as total FROM daily_relais $relaisWhere", $relaisParams);
+    $depensePaiement = fetchAssoc("SELECT COALESCE(SUM(amount), 0) as total FROM daily_paiements $paiementWhere", $paiementParams);
+}
 // Écart de caisse (formule POS) : versement - vente + trosa + prépayé - paiement - relais + mobile money
 // NB : "paiement" ici = dépenses daily_paiements, pas la colonne daily_reports.paiement (Cash)
 $ecartValeur = (float) $versement['total'] - (float) $venteJour['total'] + (float) $trosa['total'] + (float) $reportVent['prepaye'] - (float) $depensePaiement['total'] - (float) $relaisKpi['total'] + (float) $reportVent['nofy'];

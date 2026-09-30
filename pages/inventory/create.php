@@ -32,7 +32,7 @@ require __DIR__ . '/../layout.php';
 
         <div class="sm:col-span-2">
             <label class="block text-sm font-medium text-[#706f6c] dark:text-[#A1A09A] mb-2">Catégorie</label>
-            <select name="category_id" class="w-full input-field">
+            <select name="category_id" required class="w-full input-field">
                 <option value="">Sélectionner une catégorie</option>
                 <?php
                 $allCategories = fetchAllAssoc("SELECT id, name FROM categories ORDER BY name");
