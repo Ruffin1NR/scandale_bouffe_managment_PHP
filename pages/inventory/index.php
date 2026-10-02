@@ -57,7 +57,7 @@ require __DIR__ . '/../layout.php';
     </header>
 
     <!-- Stats Summary -->
-    <div class="grid grid-cols-4 gap-4">
+    <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div class="rounded-lg bg-white p-4 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
             <div class="text-3xl font-bold text-[#8B4513]"><?php echo (int)($stats['total'] ?? 0); ?></div>
             <div class="mt-1 text-sm text-[#706f6c] dark:text-[#A1A09A]">Produits au total</div>

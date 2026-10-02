@@ -81,10 +81,11 @@ $reportVent = fetchAssoc("SELECT COALESCE(SUM(prepaye), 0) as prepaye, COALESCE(
 // Dépenses "Paiement" et "Relais" : dernières saisies de la période (cohérence avec l'Écart)
 $relaisKpi = fetchAssoc("SELECT COALESCE((SELECT amount FROM daily_relais $relaisWhere ORDER BY relais_date DESC, id DESC LIMIT 1), 0) as total", $relaisParams);
 $depensePaiement = fetchAssoc("SELECT COALESCE((SELECT amount FROM daily_paiements $paiementWhere ORDER BY paiement_date DESC, id DESC LIMIT 1), 0) as total", $paiementParams);
-// Intervalle multi-jours explicite : cumul honnête (somme) au lieu de la dernière saisie,
-// pour que l'Écart de la période égale la somme des écarts journaliers
-$isMultiDay = ($dateFrom !== '' && $dateTo !== '' && $dateFrom !== $dateTo);
-if ($isMultiDay) {
+// Seul un filtre d'un jour unique affiche la dernière saisie (miroir de l'input /pos).
+// Dans tous les autres cas (intervalle multi-jours, période ouverte, sans filtre) :
+// cumul honnête (somme), pour que l'Écart de la période égale la somme des écarts journaliers.
+$isSingleDay = ($dateFrom !== '' && $dateTo !== '' && $dateFrom === $dateTo);
+if (!$isSingleDay) {
     $versement = fetchAssoc("SELECT COALESCE(SUM(amount), 0) as total FROM daily_deposits $depositWhere", $depositParams);
     $relaisKpi = fetchAssoc("SELECT COALESCE(SUM(amount), 0) as total FROM daily_relais $relaisWhere", $relaisParams);
     $depensePaiement = fetchAssoc("SELECT COALESCE(SUM(amount), 0) as total FROM daily_paiements $paiementWhere", $paiementParams);
@@ -400,9 +401,9 @@ $savedReport = fetchAssoc("SELECT prepaye, trosa, paiement, nofy FROM daily_repo
             <?php if (empty($byProduct)): ?>
                 <p class="text-sm text-[#706f6c] dark:text-[#A1A09A]">Aucune donnée sur la période.</p>
             <?php else: ?>
-                <div class="overflow-x-auto">
+                <div class="max-h-96 overflow-x-auto overflow-y-auto pr-1">
                     <table class="min-w-full divide-y divide-[#e3e3e0] dark:divide-[#3E3E3A]">
-                        <thead>
+                        <thead class="sticky top-0 bg-white dark:bg-[#161615]">
                             <tr
                                 class="text-left text-xs font-medium uppercase tracking-wider text-[#706f6c] dark:text-[#A1A09A]">
                                 <th class="py-2 pr-4">Produit</th>
@@ -436,7 +437,7 @@ $savedReport = fetchAssoc("SELECT prepaye, trosa, paiement, nofy FROM daily_repo
                 <?php if (empty($byProductWeek)): ?>
                     <p class="text-sm text-[#706f6c] dark:text-[#A1A09A]">Aucune donnée sur la période.</p>
                 <?php else: ?>
-                    <div class="max-h-96 space-y-5 overflow-y-auto pr-1">
+                    <div class="max-h-96 space-y-5 overflow-x-auto overflow-y-auto pr-1">
                         <?php foreach ($byProductWeek as $period => $items): ?>
                             <div>
                                 <p class="mb-2 text-xs font-semibold uppercase tracking-wider text-[#8B4513]"><?= htmlspecialchars(formatWeekLabel($period)) ?></p>
@@ -465,7 +466,7 @@ $savedReport = fetchAssoc("SELECT prepaye, trosa, paiement, nofy FROM daily_repo
                 <?php if (empty($byProductMonth)): ?>
                     <p class="text-sm text-[#706f6c] dark:text-[#A1A09A]">Aucune donnée sur la période.</p>
                 <?php else: ?>
-                    <div class="max-h-96 space-y-5 overflow-y-auto pr-1">
+                    <div class="max-h-96 space-y-5 overflow-x-auto overflow-y-auto pr-1">
                         <?php foreach ($byProductMonth as $period => $items): ?>
                             <?php $parts = explode('-', $period); ?>
                             <div>

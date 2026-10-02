@@ -49,13 +49,16 @@ $sales = fetchAllAssoc("
     <?php require __DIR__ . '/../../auth/check.php'; ?>
     <?php require __DIR__ . '/../partials/toast.php'; ?>
 
-    <nav class="border-b border-[#e3e3e0] dark:border-[#3E3E3A] bg-[#FDFDFC] dark:bg-[#0a0a0a]">
+    <nav class="sticky top-0 z-40 border-b border-[#e3e3e0] dark:border-[#3E3E3A] bg-[#FDFDFC] dark:bg-[#0a0a0a]">
         <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div class="flex h-16 items-center justify-between">
                 <div class="flex items-center gap-3">
                     <img src="https://scandalebouffe.netlify.app/images/scandale_logo.jpg" alt="Scandale Bouffe" class="h-9 w-9 rounded-lg object-cover">
                     <a href="<?php echo url('dashboard'); ?>" class="text-lg font-semibold text-[#8B4513]">Scandale Bouffe</a>
                 </div>
+                <button type="button" id="nav-toggle" aria-label="Menu" class="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[#e3e3e0] text-[#706f6c] transition hover:border-[#8B4513] hover:text-[#8B4513] sm:hidden dark:border-[#3E3E3A] dark:text-[#A1A09A]">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                </button>
                 <div class="hidden sm:flex items-center gap-6">
                     <a href="<?php echo url('inventory'); ?>" class="text-sm font-medium text-[#706f6c] hover:text-[#8B4513] dark:text-[#A1A09A] dark:hover:text-[#FDFDFC]">Inventaire</a>
                     <a href="<?php echo url('vendeurs'); ?>" class="text-sm font-semibold text-[#8B4513] border-b-2 border-[#8B4513] pb-1">Vendeurs</a>
@@ -68,7 +71,28 @@ $sales = fetchAllAssoc("
                 </div>
             </div>
         </div>
+        <div id="mobile-menu" class="hidden border-t border-[#e3e3e0] sm:hidden dark:border-[#3E3E3A]">
+            <div class="space-y-1 px-4 py-3">
+                <a href="<?php echo url('inventory'); ?>" class="block rounded-lg px-3 py-2.5 text-sm font-medium text-[#706f6c] dark:text-[#A1A09A]">Inventaire</a>
+                <a href="<?php echo url('vendeurs'); ?>" class="block rounded-lg px-3 py-2.5 text-sm font-medium text-[#8B4513]">Vendeurs</a>
+                <a href="<?php echo url('sales'); ?>" class="block rounded-lg px-3 py-2.5 text-sm font-medium text-[#706f6c] dark:text-[#A1A09A]">Ventes</a>
+                <a href="<?php echo url('dashboard'); ?>" class="block rounded-lg px-3 py-2.5 text-sm font-medium text-[#706f6c] dark:text-[#A1A09A]">Dashboard</a>
+                <a href="<?php echo url('profile'); ?>" class="block rounded-lg px-3 py-2.5 text-sm font-medium text-[#706f6c] dark:text-[#A1A09A]">Profil</a>
+                <form method="POST" action="<?php echo url('logout'); ?>">
+                    <button type="submit" class="block w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium text-[#706f6c] hover:text-red-600 dark:text-[#A1A09A] dark:hover:text-red-400">Déconnexion</button>
+                </form>
+            </div>
+        </div>
     </nav>
+    <script>
+    (function() {
+        var toggle = document.getElementById('nav-toggle');
+        var menu = document.getElementById('mobile-menu');
+        if (toggle && menu) {
+            toggle.addEventListener('click', function() { menu.classList.toggle('hidden'); });
+        }
+    })();
+    </script>
 
     <main class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div class="max-w-2xl mx-auto">
@@ -105,7 +129,7 @@ $sales = fetchAllAssoc("
                     <p class="text-sm text-[#706f6c] dark:text-[#A1A09A]">Aucune vente enregistrée pour ce vendeur.</p>
                 <?php else: ?>
                     <div class="overflow-x-auto">
-                        <table>
+                        <table class="min-w-full divide-y divide-[#e3e3e0] dark:divide-[#3E3E3A]">
                             <thead>
                                 <tr class="text-left text-xs font-medium uppercase tracking-wider text-[#706f6c] dark:text-[#A1A09A]">
                                     <th class="py-2 pr-4">Date</th>
@@ -141,5 +165,6 @@ $sales = fetchAllAssoc("
     </div>
 </footer>
 
+<?php require __DIR__ . '/../partials/back_to_top.php'; ?>
 </body>
 </html>

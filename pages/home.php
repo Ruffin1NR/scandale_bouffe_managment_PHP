@@ -104,7 +104,7 @@ $isVendor = $isConnected && ($_SESSION['user_role'] ?? '') === 'vendeur';
                         <?php endif; ?>
                     </div>
 
-                    <div class="animate-fade-up mx-auto mt-10 grid max-w-xl grid-cols-3 gap-4 text-center" style="animation-delay:0.65s">
+                    <div class="animate-fade-up mx-auto mt-10 grid max-w-xl grid-cols-1 gap-4 text-center sm:grid-cols-3" style="animation-delay:0.65s">
                         <div class="rounded-lg border border-[#e3e3e0]/70 bg-[#FDFDFC]/60 px-3 py-4 dark:border-[#3E3E3A]/70 dark:bg-[#0a0a0a]/40">
                             <p class="text-2xl font-bold text-[#8B4513]"><?php echo (int)($stats['product_count'] ?? 0); ?>+</p>
                             <p class="mt-1 text-xs text-[#706f6c] dark:text-[#A1A09A]">Produits gérés</p>
@@ -281,5 +281,6 @@ $isVendor = $isConnected && ($_SESSION['user_role'] ?? '') === 'vendeur';
     </div>
 
     <?php include __DIR__ . '/partials/auth_modal.php'; ?>
+    <?php require __DIR__ . '/partials/back_to_top.php'; ?>
 </body>
 </html>

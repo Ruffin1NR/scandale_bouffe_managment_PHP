@@ -43,7 +43,7 @@ $ecartInitial = (float)($lastVersement['amount'] ?? 0) - (float)($todaySales['re
 require __DIR__ . '/../layout.php';
 ?>
 
-<div class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-4">
+<div class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
     <div class="rounded-lg bg-white p-4 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
         <p class="text-2xl font-bold text-[#8B4513]"><?php echo number_format((float)$todaySales['revenue'], 0, ',', ' '); ?> Ar</p>
         <p class="mt-0.5 text-xs text-[#706f6c] dark:text-[#A1A09A]">Ventes du jour</p>
@@ -135,7 +135,7 @@ require __DIR__ . '/../layout.php';
 
         <div id="product-grid" class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-2">
             <?php foreach ($products as $product): ?>
-            <div class="product-card group relative flex items-center gap-4 rounded-lg bg-white p-4 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] transition hover:border-[#8B4513] disabled:cursor-not-allowed disabled:opacity-50 dark:bg-[#161615]"
+            <div class="product-card group relative flex flex-wrap items-center gap-4 rounded-lg bg-white p-4 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] transition hover:border-[#8B4513] disabled:cursor-not-allowed disabled:opacity-50 dark:bg-[#161615]"
                  data-product-id="<?php echo $product['id']; ?>"
                  data-name="<?php echo htmlspecialchars($product['name']); ?>"
                  data-price="<?php echo $product['price']; ?>"
@@ -176,7 +176,7 @@ require __DIR__ . '/../layout.php';
         <p id="no-products" class="mt-8 text-center text-sm text-[#706f6c] dark:text-[#A1A09A]" style="display:none;">Aucun produit trouvé.</p>
     </div>
 
-    <div class="lg:sticky lg:top-8 lg:self-start">
+    <div class="order-first lg:order-last lg:sticky lg:top-24 lg:self-start">
         <div class="rounded-lg bg-white p-6 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
             <h3 class="text-lg font-semibold text-[#1b1b18] dark:text-[#FDFDFC]">Panier</h3>
 

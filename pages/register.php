@@ -129,5 +129,6 @@ exit;
             </div>
         </div>
     </div>
+    <?php require __DIR__ . '/partials/back_to_top.php'; ?>
 </body>
 </html>
