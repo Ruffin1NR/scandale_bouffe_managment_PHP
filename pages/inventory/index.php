@@ -11,7 +11,7 @@ $offset = ($page - 1) * $perPage;
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
 $categoryFilter = isset($_GET['category_id']) ? (int)$_GET['category_id'] : 0;
 
-$where = 'WHERE 1=1';
+$where = 'WHERE p.active = 1';
 $params = [];
 
 if ($search !== '') {
@@ -32,7 +32,7 @@ $products = fetchAllAssoc(
     $params
 );
 
-$stats = fetchAssoc("SELECT COUNT(*) AS total, SUM(CASE WHEN quantity <= min_stock THEN 1 ELSE 0 END) AS low_stock, SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END) AS active, COALESCE(SUM(CASE WHEN active = 1 THEN quantity * price ELSE 0 END), 0) AS total_value FROM products");
+$stats = fetchAssoc("SELECT COUNT(*) AS total, SUM(CASE WHEN quantity <= min_stock THEN 1 ELSE 0 END) AS low_stock, SUM(CASE WHEN quantity > min_stock THEN 1 ELSE 0 END) AS active, COALESCE(SUM(quantity * price), 0) AS total_value FROM products WHERE active = 1");
 
 $categories = fetchAllAssoc("SELECT id, name FROM categories ORDER BY name ASC");
 

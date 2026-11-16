@@ -7,7 +7,7 @@ require __DIR__ . '/../../auth/check.php';
 $id = (int)($_GET['id'] ?? 0);
 if ($id <= 0) { header('Location: ' . url('inventory')); exit; }
 
-$product = fetchAssoc("SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.id = ?", [$id]);
+$product = fetchAssoc("SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.id = ? AND p.active = 1", [$id]);
 if (!$product) { header('Location: ' . url('inventory')); exit; }
 
 $recentSales = fetchAllAssoc(

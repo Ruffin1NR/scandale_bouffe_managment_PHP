@@ -7,3 +7,5 @@ database.sql
 
 Caise_Vente.xlsx
 Comptes SCANDALE TEST.xlsx
+scripts/logs/
+scripts/.runtime/

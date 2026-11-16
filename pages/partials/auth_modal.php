@@ -13,7 +13,7 @@ unset($_SESSION['auth_success']);
         </button>
         <div class="bg-[#FDFDFC] p-6 dark:bg-[#0a0a0a] sm:p-8">
             <div class="mb-6 flex items-center gap-3">
-                <img src="https://scandalebouffe.netlify.app/images/scandale_logo.jpg" alt="Scandale Bouffe" class="h-10 w-10 rounded-lg object-cover">
+                <img src="<?php echo url('public/scandale_logo.jpg'); ?>" alt="Scandale Bouffe" class="h-10 w-10 rounded-lg object-cover">
                 <div>
                     <h2 id="auth-modal-title" class="text-xl font-semibold text-[#1b1b18] dark:text-[#FDFDFC]">Connexion</h2>
                     <p class="text-sm text-[#706f6c] dark:text-[#A1A09A]">Scandale Bouffe</p>

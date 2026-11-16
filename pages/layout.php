@@ -18,8 +18,7 @@ $isAdmin = ($_SESSION['user_role'] ?? '') === 'administrateur';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo htmlspecialchars($pageTitle ?? 'Scandale Bouffe'); ?></title>
-    <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=instrument+sans:400,500,600,700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="<?php echo url('css/fonts.css'); ?>">
     <link rel="stylesheet" href="<?php echo url('css/tailwind.css'); ?>">
     <link rel="stylesheet" href="<?php echo url('css/styles.css'); ?>">
 </head>
@@ -34,7 +33,7 @@ $isAdmin = ($_SESSION['user_role'] ?? '') === 'administrateur';
     <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div class="flex h-16 items-center justify-between">
             <div class="flex items-center gap-3">
-                <img src="https://scandalebouffe.netlify.app/images/scandale_logo.jpg" alt="Scandale Bouffe" class="h-9 w-9 rounded-lg object-cover">
+                <img src="<?php echo url('public/scandale_logo.jpg'); ?>" alt="Scandale Bouffe" class="h-9 w-9 rounded-lg object-cover">
                 <a href="<?php echo url($isAdmin ? 'dashboard' : 'vendeur'); ?>" class="text-lg font-semibold text-[#8B4513]">Scandale Bouffe</a>
             </div>
 

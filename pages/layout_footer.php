@@ -8,6 +8,6 @@
 
 <?php require __DIR__ . '/partials/back_to_top.php'; ?>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="<?php echo url('js/chart.umd.min.js'); ?>"></script>
 </body>
 </html>

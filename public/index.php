@@ -250,10 +250,16 @@ switch ($page) {
                     header('Location: ' . url('inventory'));
                     exit;
                 }
-                $id = (int)($_GET['id'] ?? 0);
+                $id = (int)($_GET['id'] ?? $_POST['id'] ?? 0);
                 if ($id > 0) {
-                    query("UPDATE products SET active = 0, updated_at = NOW() WHERE id = ?", [$id]);
-                    $_SESSION['success'] = "Produit supprim\u00e9 avec succ\u00e8s.";
+                    $stmt = query("UPDATE products SET active = 0, updated_at = NOW() WHERE id = ? AND active = 1", [$id]);
+                    if ($stmt->rowCount() > 0) {
+                        $_SESSION['success'] = "Produit supprimé avec succès.";
+                    } else {
+                        $_SESSION['error'] = "Produit introuvable ou déjà supprimé.";
+                    }
+                } else {
+                    $_SESSION['error'] = "Produit introuvable.";
                 }
                 header('Location: ' . url('inventory'));
                 exit;
@@ -263,11 +269,17 @@ switch ($page) {
                     header('Location: ' . url('inventory'));
                     exit;
                 }
-                $ids = array_map('intval', (array)($_POST['ids'] ?? []));
+                $ids = array_values(array_filter(array_map('intval', (array)($_POST['ids'] ?? [])), fn($id) => $id > 0));
                 if (!empty($ids)) {
                     $placeholders = implode(',', array_fill(0, count($ids), '?'));
-                    query("UPDATE products SET active = 0, updated_at = NOW() WHERE id IN ($placeholders)", $ids);
-                    $_SESSION['success'] = "Produit(s) supprim\u00e9(s) avec succ\u00e8s.";
+                    $stmt = query("UPDATE products SET active = 0, updated_at = NOW() WHERE id IN ($placeholders) AND active = 1", $ids);
+                    if ($stmt->rowCount() > 0) {
+                        $_SESSION['success'] = "Produit(s) supprimé(s) avec succès.";
+                    } else {
+                        $_SESSION['error'] = "Aucun produit à supprimer (introuvable ou déjà supprimé).";
+                    }
+                } else {
+                    $_SESSION['error'] = "Aucun produit sélectionné.";
                 }
                 header('Location: ' . url('inventory'));
                 exit;
@@ -317,9 +329,15 @@ switch ($page) {
                     if (($count['c'] ?? 0) > 0) {
                         $_SESSION['error'] = "Impossible de supprimer : des produits sont associes a cette categorie.";
                     } else {
-                        query("DELETE FROM categories WHERE id = ?", [$id]);
-                        $_SESSION['success'] = "Categorie supprimee.";
+                        $stmt = query("DELETE FROM categories WHERE id = ?", [$id]);
+                        if ($stmt->rowCount() > 0) {
+                            $_SESSION['success'] = "Categorie supprimee.";
+                        } else {
+                            $_SESSION['error'] = "Categorie introuvable.";
+                        }
                     }
+                } else {
+                    $_SESSION['error'] = "Categorie introuvable.";
                 }
                 header('Location: ' . url('categories'));
                 exit;

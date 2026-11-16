@@ -16,8 +16,7 @@ $isVendor = $isConnected && ($_SESSION['user_role'] ?? '') === 'vendeur';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Scandale Bouffe - Gestion de Stock</title>
-    <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=instrument+sans:400,500,600,700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="<?php echo url('css/fonts.css'); ?>">
     <link rel="stylesheet" href="<?php echo url('css/tailwind.css'); ?>">
     <link rel="stylesheet" href="<?php echo url('css/styles.css'); ?>">
 </head>
@@ -35,7 +34,7 @@ $isVendor = $isConnected && ($_SESSION['user_role'] ?? '') === 'vendeur';
         <nav class="sticky top-0 z-50 border-b border-[#e3e3e0]/60 bg-[#FDFDFC]/70 backdrop-blur-xl dark:border-[#3E3E3A]/50 dark:bg-[#0a0a0a]/70">
             <div class="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
                 <div class="flex items-center gap-3">
-                    <img src="https://scandalebouffe.netlify.app/images/scandale_logo.jpg" alt="Scandale Bouffe" class="h-10 w-10 rounded-lg object-cover">
+                    <img src="<?php echo url('public/scandale_logo.jpg'); ?>" alt="Scandale Bouffe" class="h-10 w-10 rounded-lg object-cover">
                     <span class="text-lg font-semibold text-[#8B4513]">Scandale Bouffe</span>
                 </div>
 
@@ -68,7 +67,7 @@ $isVendor = $isConnected && ($_SESSION['user_role'] ?? '') === 'vendeur';
             <!-- HERO -->
             <section id="accueil" class="w-full max-w-2xl scroll-mt-24 text-center lg:max-w-4xl">
                 <div class="animate-fade-up mb-10 flex justify-center">
-                    <img src="https://scandalebouffe.netlify.app/images/scandale_logo.jpg" alt="Scandale Bouffe"
+                    <img src="<?php echo url('public/scandale_logo.jpg'); ?>" alt="Scandale Bouffe"
                          class="animate-float w-40 rounded-bl-lg rounded-br-lg rounded-t-lg object-cover shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] lg:w-56">
                 </div>
 
