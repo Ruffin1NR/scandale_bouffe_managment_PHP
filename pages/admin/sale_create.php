@@ -6,16 +6,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $items = $_POST['items'] ?? [];
     $total = 0;
     $validItems = [];
+    $qtyByProduct = [];
+
+    foreach ($items as $item) {
+        $productId = (int)($item['product_id'] ?? 0);
+        $qty = (int)($item['quantity'] ?? 0);
+        if ($productId > 0 && $qty > 0) {
+            $qtyByProduct[$productId] = ($qtyByProduct[$productId] ?? 0) + $qty;
+        }
+    }
 
     foreach ($items as $item) {
         $product_id = (int)($item['product_id'] ?? 0);
         $qty = (int)($item['quantity'] ?? 0);
         if ($product_id <= 0 || $qty <= 0) continue;
 
-        $product = fetchAssoc("SELECT id, name, price, quantity, active FROM products WHERE id = ?", [$product_id]);
+        $product = fetchAssoc("
+            SELECT p.id, p.name, p.price, p.quantity, p.active, COALESCE(c.track_stock, 0) AS track_stock
+            FROM products p
+            LEFT JOIN categories c ON c.id = p.category_id
+            WHERE p.id = ?
+        ", [$product_id]);
         if (!$product || !$product['active']) continue;
-        if ($product['quantity'] < $qty) {
-            $_SESSION['error'] = "Stock insuffisant pour \"" . $product['name'] . "\" (dispo: " . $product['quantity'] . ").";
+        if ((int)$product['track_stock'] === 1 && $product['quantity'] < $qtyByProduct[$product_id]) {
+            $_SESSION['error'] = "Stock insuffisant pour \"" . $product['name'] . "\" (demandé : " . $qtyByProduct[$product_id] . ", dispo: " . $product['quantity'] . ").";
             header('Location: ' . url('sales/create'));
             exit;
         }
@@ -27,6 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'quantity' => $qty,
             'unit_price' => $product['price'],
             'line_total' => $lineTotal,
+            'track_stock' => (int)$product['track_stock'],
         ];
     }
 
@@ -45,7 +60,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         foreach ($validItems as $item) {
             query("INSERT INTO sale_items (sale_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)", [$saleId, $item['product_id'], $item['quantity'], $item['unit_price']]);
-            query("UPDATE products SET quantity = quantity - ? WHERE id = ?", [$item['quantity'], $item['product_id']]);
+            if ((int)($item['track_stock'] ?? 0) === 1) {
+                query("UPDATE products SET quantity = quantity - ? WHERE id = ?", [$item['quantity'], $item['product_id']]);
+            }
         }
 
         $pdo->commit();
@@ -64,7 +81,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <?php require __DIR__ . '/../layout.php'; ?>
 
 <?php
-$products = fetchAllAssoc("SELECT id, name, price, quantity, unit FROM products WHERE active = 1 ORDER BY name");
+$products = fetchAllAssoc("
+    SELECT p.id, p.name, p.price, p.quantity, p.unit, COALESCE(c.track_stock, 0) AS track_stock
+    FROM products p
+    LEFT JOIN categories c ON c.id = p.category_id
+    WHERE p.active = 1
+    ORDER BY p.name
+");
 ?>
 
 <div class="max-w-3xl mx-auto">
@@ -82,8 +105,13 @@ $products = fetchAllAssoc("SELECT id, name, price, quantity, unit FROM products 
                     <select name="items[0][product_id]" required class="flex-1 rounded-lg border border-[#e3e3e0] bg-white px-3 py-2 text-sm text-[#1b1b18] shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#FDFDFC]">
                         <option value="">Choisir un produit</option>
                         <?php foreach ($products as $p): ?>
-                        <option value="<?php echo $p['id']; ?>" data-price="<?php echo $p['price']; ?>" data-stock="<?php echo $p['quantity']; ?>" data-unit="<?php echo htmlspecialchars($p['unit']); ?>">
-                            <?php echo htmlspecialchars($p['name']); ?> — <?php echo number_format($p['price'], 0, ',', ' '); ?> Ar / <?php echo $p['unit']; ?> (stock: <?php echo $p['quantity']; ?>)
+                        <option value="<?php echo $p['id']; ?>" data-price="<?php echo $p['price']; ?>" data-stock="<?php echo (int)$p['track_stock'] === 1 ? $p['quantity'] : ''; ?>" data-track-stock="<?php echo (int)$p['track_stock']; ?>" data-unit="<?php echo htmlspecialchars($p['unit']); ?>">
+                            <?php echo htmlspecialchars($p['name']); ?> — <?php echo number_format($p['price'], 0, ',', ' '); ?> Ar / <?php echo $p['unit']; ?>
+                            <?php if ((int)$p['track_stock'] === 1): ?>
+                                (stock: <?php echo $p['quantity']; ?>)
+                            <?php else: ?>
+                                (stock non suivi)
+                            <?php endif; ?>
                         </option>
                         <?php endforeach; ?>
                     </select>

@@ -20,7 +20,12 @@ $stats['today_items_sold'] = fetchAssoc("
     WHERE s.user_id = ? AND DATE(s.created_at) = CURDATE()
 ", [$userId])['qty'] ?? 0;
 
-$stats['low_stock'] = fetchAssoc("SELECT COUNT(*) AS qty FROM products WHERE active = 1 AND quantity <= min_stock")['qty'] ?? 0;
+$stats['low_stock'] = fetchAssoc("
+    SELECT COUNT(*) AS qty
+    FROM products p
+    JOIN categories c ON c.id = p.category_id
+    WHERE p.active = 1 AND c.track_stock = 1 AND p.quantity <= p.min_stock
+")['qty'] ?? 0;
 
 $recentSales = fetchAllAssoc("
     SELECT s.id, s.total, s.created_at,
@@ -53,7 +58,7 @@ require __DIR__ . '/../layout.php';
             </div>
             <div class="rounded-lg bg-white p-6 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
                 <p class="text-3xl font-bold text-[#FF750F]"><?php echo (int)$stats['low_stock']; ?></p>
-                <p class="mt-1 text-sm text-[#706f6c] dark:text-[#A1A09A]">Produits en stock faible</p>
+                <p class="mt-1 text-sm text-[#706f6c] dark:text-[#A1A09A]">Produits suivis en stock faible</p>
             </div>
         </div>
 

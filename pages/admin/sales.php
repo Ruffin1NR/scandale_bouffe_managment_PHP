@@ -1,6 +1,7 @@
 <?php
 $currentPage = 'sales';
 $pageTitle = 'Suivi des ventes';
+$withConfirmModal = true;
 ?>
 <?php require __DIR__ . '/../layout.php'; ?>
 <?php
@@ -492,10 +493,13 @@ $savedReport = fetchAssoc("SELECT prepaye, trosa, paiement, nofy FROM daily_repo
             </div>
         </div>
 
-        <!-- <div class="mt-6 rounded-lg bg-white shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
-            <h3 class="p-6 pb-0 text-lg font-semibold text-[#1b1b18] dark:text-[#FDFDFC]">Transactions</h3>
+        <div class="mt-6 rounded-lg bg-white shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
+            <div class="flex flex-wrap items-center justify-between gap-3 p-6 pb-0">
+                <h3 class="text-lg font-semibold text-[#1b1b18] dark:text-[#FDFDFC]">Transactions</h3>
+                <span class="text-xs text-[#706f6c] dark:text-[#A1A09A]"><?= $total ?> vente(s) sur la période</span>
+            </div>
             <?php if (empty($sales)): ?>
-                <p class="p-6 text-sm text-[#706f6c] dark:text-[#A1A09A]">Aucune vente enregistré   e.</p>
+                <p class="p-6 text-sm text-[#706f6c] dark:text-[#A1A09A]">Aucune vente enregistrée.</p>
             <?php else: ?>
                 <div class="p-6">
                     <div class="overflow-x-auto">
@@ -508,39 +512,55 @@ $savedReport = fetchAssoc("SELECT prepaye, trosa, paiement, nofy FROM daily_repo
                                     <th class="px-4 py-2 text-center">Paiement</th>
                                     <th class="px-4 py-2">Articles</th>
                                     <th class="py-2 pl-4 text-right">Total</th>
+                                    <th class="py-2 pl-4 text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-[#e3e3e0] dark:divide-[#3E3E3A]">
                                 <?php foreach ($sales as $sale): ?>
-                                    <?php $items = $saleItems[$sale['id']] ?? []; ?>
-                                    <?php $itemCount = 0;
+                                    <?php
+                                    $items = $saleItems[$sale['id']] ?? [];
+                                    $itemCount = 0;
                                     foreach ($items as $it) {
                                         $itemCount += (int) $it['quantity'];
-                                    } ?>
+                                    }
+                                    $pm = $sale['payment_method'] ?? 'cash';
+                                    $pmClass = match ($pm) { 'mobile_money' => 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400', 'credit' => 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400', default => 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'};
+                                    $pmLabel = match ($pm) { 'mobile_money' => 'Mobile', 'credit' => 'Crédit', default => 'Cash'};
+                                    $saleLabel = '#' . $sale['id'] . ' — ' . number_format((float) $sale['total'], 0, ',', ' ') . ' Ar';
+                                    ?>
                                     <tr class="cursor-pointer transition hover:bg-[#FDFDFC] dark:hover:bg-[#1a1a1a]"
                                         onclick="var d=document.getElementById('detail-<?= $sale['id'] ?>');d.classList.toggle('hidden')">
                                         <td class="py-3 pr-4 text-sm font-medium text-[#8B4513]">#<?= $sale['id'] ?></td>
                                         <td class="px-4 py-3 text-sm text-[#706f6c] dark:text-[#A1A09A]"><?= date('d/m/Y H:i', strtotime($sale['created_at'])) ?></td>
-                                        <td class="px-4 py-3 text-sm text-[#1b1b18] dark:text-[#FDFDFC]"><?= htmlspecialchars($sale['vendor_name'] ?? '&#8212;') ?></td>
+                                        <td class="px-4 py-3 text-sm text-[#1b1b18] dark:text-[#FDFDFC]"><?= htmlspecialchars($sale['vendor_name'] ?? '—') ?></td>
                                         <td class="px-4 py-3 text-center">
-                                            <?php
-                                            $pm = $sale['payment_method'] ?? 'cash';
-                                            $pmClass = match ($pm) { 'mobile_money' => 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400', 'credit' => 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400', default => 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'};
-                                            $pmLabel = match ($pm) { 'mobile_money' => 'Mobile', 'credit' => 'Crédit', default => 'Cash'};
-                                            ?>
                                             <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium <?= $pmClass ?>"><?= $pmLabel ?></span>
                                         </td>
                                         <td class="px-4 py-3 text-sm text-[#706f6c] dark:text-[#A1A09A]"><?= $itemCount ?> article(s)</td>
                                         <td class="py-3 pl-4 text-right text-sm font-semibold text-[#1b1b18] dark:text-[#FDFDFC]"><?= number_format((float) $sale['total'], 0, ',', ' ') ?> Ar</td>
+                                        <td class="py-3 pl-4 text-right">
+                                            <div class="flex items-center justify-end gap-1">
+                                                <a href="<?= url('sales/edit?id=' . $sale['id']) ?>"
+                                                   onclick="event.stopPropagation()"
+                                                   class="rounded-lg border border-[#e3e3e0] px-2.5 py-1.5 text-xs font-medium text-[#706f6c] transition hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:text-[#A1A09A]">
+                                                    Modifier
+                                                </a>
+                                                <button type="button"
+                                                        onclick="event.stopPropagation(); confirmDeleteSale(<?= (int) $sale['id'] ?>, <?= htmlspecialchars(json_encode($saleLabel), ENT_QUOTES) ?>)"
+                                                        class="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-600 transition hover:border-red-600 hover:bg-red-50 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-900/20">
+                                                    Supprimer
+                                                </button>
+                                            </div>
+                                        </td>
                                     </tr>
                                     <tr id="detail-<?= $sale['id'] ?>" class="hidden">
-                                        <td colspan="6" class="bg-[#FDFDFC] px-6 py-4 dark:bg-[#0a0a0a]">
+                                        <td colspan="7" class="bg-[#FDFDFC] px-6 py-4 dark:bg-[#0a0a0a]">
                                             <ul class="space-y-2">
                                                 <?php foreach ($items as $item): ?>
                                                     <li class="flex items-center justify-between text-sm">
                                                         <span class="text-[#1b1b18] dark:text-[#FDFDFC]">
-                                                            <?= htmlspecialchars($item['product_name']) ?>
-                                                            <span class="ms-2 text-xs text-[#706f6c] dark:text-[#A1A09A]"><?= htmlspecialchars($item['category_name'] ?? '&#8212;') ?></span>
+                                                            <?= htmlspecialchars($item['product_name'] ?? 'Produit supprimé') ?>
+                                                            <span class="ms-2 text-xs text-[#706f6c] dark:text-[#A1A09A]"><?= htmlspecialchars($item['category_name'] ?? '—') ?></span>
                                                         </span>
                                                         <span class="text-[#706f6c] dark:text-[#A1A09A]">
                                                             <?= (int) $item['quantity'] ?> &#215; <?= number_format((float) $item['unit_price'], 0, ',', ' ') ?> Ar
@@ -563,7 +583,7 @@ $savedReport = fetchAssoc("SELECT prepaye, trosa, paiement, nofy FROM daily_repo
                                 <?php if ($page > 1): ?>
                                     <a href="?page=<?= $page - 1 . $qs ?>"
                                        class="rounded-lg border border-[#e3e3e0] px-3 py-1.5 text-sm text-[#706f6c] transition hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:text-[#A1A09A]">
-                                        &laquo; Pré;cé;dent
+                                        &laquo; Précédent
                                     </a>
                                 <?php endif; ?>
                                 <?php for ($i = 1; $i <= $totalPages; $i++): ?>
@@ -583,9 +603,22 @@ $savedReport = fetchAssoc("SELECT prepaye, trosa, paiement, nofy FROM daily_repo
                     <?php endif; ?>
                 </div>
             <?php endif; ?>
-        </div> -->
+        </div>
+
+        <form id="delete-sale-form" method="POST" action="<?= url('sales/delete') ?>" class="hidden">
+            <input type="hidden" name="id" id="delete-sale-id" value="">
+        </form>
 
     </div>
 </div>
+
+<script>
+function confirmDeleteSale(id, label) {
+    showConfirmModal('Êtes-vous sûr de vouloir supprimer la vente ' + label + ' ? Les quantités des produits suivis seront remises en stock. Le rapport journalier ne sera pas recalculé.', function() {
+        document.getElementById('delete-sale-id').value = id;
+        document.getElementById('delete-sale-form').submit();
+    });
+}
+</script>
 
 <?php require __DIR__ . '/../layout_footer.php'; ?>

@@ -7,8 +7,9 @@ require __DIR__ . '/../../auth/check.php';
 $id = (int)($_GET['id'] ?? 0);
 if ($id <= 0) { header('Location: ' . url('inventory')); exit; }
 
-$product = fetchAssoc("SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.id = ? AND p.active = 1", [$id]);
+$product = fetchAssoc("SELECT p.*, c.name AS category_name, COALESCE(c.track_stock, 0) AS track_stock FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.id = ? AND p.active = 1", [$id]);
 if (!$product) { header('Location: ' . url('inventory')); exit; }
+$trackStock = (int)($product['track_stock'] ?? 0) === 1;
 
 $recentSales = fetchAllAssoc(
     "SELECT si.quantity, si.unit_price, s.created_at, u.name as vendor_name
@@ -64,6 +65,7 @@ require __DIR__ . '/../layout.php';
                 <dt class="text-xs font-medium text-[#706f6c] dark:text-[#A1A09A]">Prix</dt>
                 <dd class="mt-1 text-xl font-semibold text-[#1b1b18] dark:text-[#FDFDFC]"><?php echo number_format((float)$product['price'], 0, ',', ' '); ?> <span class="text-sm font-normal">Ar</span></dd>
             </div>
+            <?php if ($trackStock): ?>
             <div class="rounded-lg bg-[#f8f8f7] dark:bg-[#1a1a1a] p-4">
                 <dt class="text-xs font-medium text-[#706f6c] dark:text-[#A1A09A]">Stock actuel</dt>
                 <dd class="mt-1 text-xl font-semibold <?php echo ($product['quantity'] <= $product['min_stock']) ? 'text-red-600' : 'text-[#1b1b18] dark:text-[#FDFDFC]'; ?>">
@@ -90,9 +92,16 @@ require __DIR__ . '/../layout.php';
                     <?php endif; ?>
                 </dd>
             </div>
+            <?php else: ?>
+            <div class="rounded-lg bg-[#f8f8f7] dark:bg-[#1a1a1a] p-4 sm:col-span-3">
+                <dt class="text-xs font-medium text-[#706f6c] dark:text-[#A1A09A]">Stock</dt>
+                <dd class="mt-1 text-xl font-semibold text-[#706f6c] dark:text-[#A1A09A]">Non suivi</dd>
+                <p class="mt-1 text-xs text-[#706f6c] dark:text-[#A1A09A]">Cette catégorie ne fait pas l'objet d'un suivi de stock.</p>
+            </div>
+            <?php endif; ?>
         </dl>
 
-        <?php if ($product['quantity'] > 0 && $product['price'] > 0): ?>
+        <?php if ($trackStock && $product['quantity'] > 0 && $product['price'] > 0): ?>
         <div class="mt-6 rounded-lg bg-[#8B4513]/5 border border-[#8B4513]/20 p-4">
             <p class="text-sm text-[#706f6c] dark:text-[#A1A09A]">Valeur du stock</p>
             <p class="mt-1 text-2xl font-semibold text-[#8B4513]">

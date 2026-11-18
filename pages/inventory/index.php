@@ -28,11 +28,17 @@ $totalItems = (int)($countRow['cnt'] ?? 0);
 $totalPages = max(1, ceil($totalItems / $perPage));
 
 $products = fetchAllAssoc(
-    "SELECT p.*, c.name AS category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id $where ORDER BY p.name ASC LIMIT $perPage OFFSET $offset",
+    "SELECT p.*, c.name AS category_name, COALESCE(c.track_stock, 0) AS track_stock FROM products p LEFT JOIN categories c ON c.id = p.category_id $where ORDER BY p.name ASC LIMIT $perPage OFFSET $offset",
     $params
 );
 
-$stats = fetchAssoc("SELECT COUNT(*) AS total, SUM(CASE WHEN quantity <= min_stock THEN 1 ELSE 0 END) AS low_stock, SUM(CASE WHEN quantity > min_stock THEN 1 ELSE 0 END) AS active, COALESCE(SUM(quantity * price), 0) AS total_value FROM products WHERE active = 1");
+$stats = fetchAssoc("
+    SELECT
+        (SELECT COUNT(*) FROM products WHERE active = 1) AS total,
+        (SELECT COUNT(*) FROM products p JOIN categories c ON c.id = p.category_id WHERE p.active = 1 AND c.track_stock = 1 AND p.quantity <= p.min_stock) AS low_stock,
+        (SELECT COUNT(*) FROM products p JOIN categories c ON c.id = p.category_id WHERE p.active = 1 AND c.track_stock = 1 AND p.quantity > p.min_stock) AS active,
+        (SELECT COALESCE(SUM(p.quantity * p.price), 0) FROM products p JOIN categories c ON c.id = p.category_id WHERE p.active = 1 AND c.track_stock = 1) AS total_value
+");
 
 $categories = fetchAllAssoc("SELECT id, name FROM categories ORDER BY name ASC");
 
@@ -45,7 +51,7 @@ require __DIR__ . '/../layout.php';
     <header class="flex items-center justify-between">
         <div>
             <h1 class="text-2xl font-bold text-[#1b1b18] dark:text-[#FDFDFC]">Gestion de Stock</h1>
-            <p class="text-sm text-[#706f6c] dark:text-[#A1A09A]">Suivez et gérez vos produits en temps réel.</p>
+            <p class="text-sm text-[#706f6c] dark:text-[#A1A09A]">Suivez le stock des produits des catégories avec suivi de stock.</p>
         </div>
         <a href="<?php echo url('inventory/create'); ?>"
            class="inline-flex items-center rounded-lg bg-[#8B4513] px-4 py-2 text-sm font-medium text-[#FDFDFC] shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] transition hover:bg-[#A0522D]">
@@ -54,6 +60,12 @@ require __DIR__ . '/../layout.php';
             </svg>
             Ajouter un produit
         </a>
+        <div class="flex items-center gap-2">
+            <a href="<?php echo url('inventory/movements'); ?>"
+               class="inline-flex items-center rounded-lg bg-[#8B4513] px-3 py-1.5 text-xs font-medium text-[#FDFDFC] hover:bg-[#A0522D] transition">
+                Continuité de stock
+            </a>
+        </div>
     </header>
 
     <!-- Stats Summary -->
@@ -64,15 +76,15 @@ require __DIR__ . '/../layout.php';
         </div>
         <div class="rounded-lg bg-white p-4 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
             <div class="text-3xl font-bold text-[#FF750F]"><?php echo (int)($stats['low_stock'] ?? 0); ?></div>
-            <div class="mt-1 text-sm text-[#706f6c] dark:text-[#A1A09A]">Stock faible</div>
+            <div class="mt-1 text-sm text-[#706f6c] dark:text-[#A1A09A]">Stock faible (suivi)</div>
         </div>
         <div class="rounded-lg bg-white p-4 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
             <div class="text-3xl font-bold text-[#1b1b18] dark:text-[#FDFDFC]"><?php echo (int)($stats['active'] ?? 0); ?></div>
-            <div class="mt-1 text-sm text-[#706f6c] dark:text-[#A1A09A]">Stock actif</div>
+            <div class="mt-1 text-sm text-[#706f6c] dark:text-[#A1A09A]">Stock suivi actif</div>
         </div>
         <div class="rounded-lg bg-white p-4 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
             <div class="text-3xl font-bold text-[#8B4513]"><?php echo number_format((float)($stats['total_value'] ?? 0), 0, ',', ' '); ?> Ar</div>
-            <div class="mt-1 text-sm text-[#706f6c] dark:text-[#A1A09A]">Valeur totale</div>
+            <div class="mt-1 text-sm text-[#706f6c] dark:text-[#A1A09A]">Valeur stock suivi</div>
         </div>
     </div>
 
@@ -105,7 +117,7 @@ require __DIR__ . '/../layout.php';
     <div class="overflow-hidden rounded-lg bg-white shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
         <?php if (empty($products)): ?>
             <div class="p-12 text-center">
-                <p class="text-lg font-medium text-[#1b1b18] dark:text-[#FDFDFC]">Aucun produit en stock</p>
+                <p class="text-lg font-medium text-[#1b1b18] dark:text-[#FDFDFC]">Aucun produit</p>
                 <p class="mt-2 text-sm text-[#706f6c] dark:text-[#A1A09A]">
                     Commencez par ajouter votre premier produit.
                 </p>
@@ -165,13 +177,19 @@ require __DIR__ . '/../layout.php';
                             <?php echo number_format((float)$product['price'], 0, ',', ' '); ?> Ar
                         </td>
                         <td class="px-6 py-4 text-sm">
-                            <?php if ((int)$product['quantity'] <= (int)$product['min_stock']): ?>
-                                <span class="inline-flex items-center rounded-full bg-[#FF750F]/10 px-2.5 py-1 text-xs font-medium text-[#FF750F]">
-                                    <?php echo (int)$product['quantity']; ?> <?php echo htmlspecialchars($product['unit']); ?> · stock bas
-                                </span>
+                            <?php if (!empty($product['track_stock'])): ?>
+                                <?php if ((int)$product['quantity'] <= (int)$product['min_stock']): ?>
+                                    <span class="inline-flex items-center rounded-full bg-[#FF750F]/10 px-2.5 py-1 text-xs font-medium text-[#FF750F]">
+                                        <?php echo (int)$product['quantity']; ?> <?php echo htmlspecialchars($product['unit']); ?> · stock bas
+                                    </span>
+                                <?php else: ?>
+                                    <span class="inline-flex items-center rounded-full bg-[#8B4513]/10 px-2.5 py-1 text-xs font-medium text-[#8B4513]">
+                                        <?php echo (int)$product['quantity']; ?> <?php echo htmlspecialchars($product['unit']); ?>
+                                    </span>
+                                <?php endif; ?>
                             <?php else: ?>
-                                <span class="inline-flex items-center rounded-full bg-[#8B4513]/10 px-2.5 py-1 text-xs font-medium text-[#8B4513]">
-                                    <?php echo (int)$product['quantity']; ?> <?php echo htmlspecialchars($product['unit']); ?>
+                                <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 dark:bg-gray-900/30 dark:text-gray-400">
+                                    Non suivi
                                 </span>
                             <?php endif; ?>
                         </td>

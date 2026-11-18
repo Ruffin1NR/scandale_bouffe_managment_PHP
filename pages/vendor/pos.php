@@ -1,6 +1,36 @@
 <?php
+require_once __DIR__ . '/../../config/db.php';
+
+$successMessage = '';
+if (!empty($_GET['success'])) {
+    $successMessage = $_GET['success'];
+}
+?>
+<!-- Success message container will be inserted by JavaScript -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var params = new URLSearchParams(window.location.search);
+    if (params.has('success')) {
+        var successDiv = document.createElement('div');
+        successDiv.className = 'fixed top-0 left-0 right-0 bg-green-500 text-white px-4 py-3 z-50';
+        successDiv.innerHTML = '<span class="text-white">' + params.get('success') + '</span>' + 
+            '<button class="close absolute right-3 top-3 text-white" style="cursor:pointer;" onclick="this.parentElement.parentElement.style.display=\'none\'" aria-label="Fermer">×</button>';
+        document.body.insertBefore(successDiv, document.body.firstChild);
+    }
+});
+</script>
+<?php
 $currentPage = 'pos';
 $pageTitle = 'Caisse';
+
+$todayDate = date('Y-m-d');
+$selectedDate = normalizeDate($_GET['date'] ?? null, $todayDate);
+// On ne peut pas enregistrer une vente dans le futur
+if ($selectedDate > $todayDate) {
+    $selectedDate = $todayDate;
+}
+$isToday = ($selectedDate === $todayDate);
+$dateLabel = $isToday ? 'du jour' : 'du ' . date('d/m/Y', strtotime($selectedDate));
 
 $search = trim($_GET['search'] ?? '');
 $where = "WHERE p.active = 1";
@@ -11,54 +41,92 @@ if ($search !== '') {
 }
 
 $products = fetchAllAssoc("
-    SELECT p.id, p.name, p.price, p.quantity, p.unit, p.image, (p.quantity <= p.min_stock) AS low_stock
+    SELECT p.id, p.name, p.price, p.quantity, p.unit, p.image,
+           COALESCE(c.track_stock, 0) AS track_stock,
+           (c.track_stock = 1 AND p.quantity <= p.min_stock) AS low_stock
     FROM products p
+    LEFT JOIN categories c ON c.id = p.category_id
     $where
     ORDER BY p.name
 ", $params);
 
-$todaySales = fetchAssoc("
+$daySales = fetchAssoc("
     SELECT
         COALESCE(SUM(s.total), 0) AS revenue,
         COUNT(DISTINCT s.id) AS sale_count,
-        COALESCE((SELECT SUM(si.quantity) FROM sale_items si WHERE si.sale_id IN (SELECT s2.id FROM sales s2 WHERE s2.user_id = ? AND DATE(s2.created_at) = CURDATE())), 0) AS items_sold
+        COALESCE((SELECT SUM(si.quantity) FROM sale_items si WHERE si.sale_id IN (SELECT s2.id FROM sales s2 WHERE s2.user_id = ? AND DATE(s2.created_at) = ?)), 0) AS items_sold
     FROM sales s
-    WHERE s.user_id = ? AND DATE(s.created_at) = CURDATE()
-", [$_SESSION['user_id'], $_SESSION['user_id']]) ?? ['revenue' => 0, 'sale_count' => 0, 'items_sold' => 0];
+    WHERE s.user_id = ? AND DATE(s.created_at) = ?
+", [$_SESSION['user_id'], $selectedDate, $_SESSION['user_id'], $selectedDate]) ?? ['revenue' => 0, 'sale_count' => 0, 'items_sold' => 0];
 
-$todayDate = date('Y-m-d');
-$savedReport = fetchAssoc("SELECT prepaye, trosa, paiement, nofy FROM daily_reports WHERE user_id = ? AND report_date = ?", [$_SESSION['user_id'], $todayDate]);
-// Dernières valeurs du jour pour garder les inputs pré-remplis après actualisation
-$lastVersement = fetchAssoc("SELECT amount FROM daily_deposits WHERE user_id = ? AND deposit_date = ? ORDER BY id DESC LIMIT 1", [$_SESSION['user_id'], $todayDate]);
+$savedReport = fetchAssoc("SELECT prepaye, trosa, paiement, nofy FROM daily_reports WHERE user_id = ? AND report_date = ?", [$_SESSION['user_id'], $selectedDate]);
+// Dernières valeurs du jour sélectionné pour garder les inputs pré-remplis après actualisation
+$lastVersement = fetchAssoc("SELECT amount FROM daily_deposits WHERE user_id = ? AND deposit_date = ? ORDER BY id DESC LIMIT 1", [$_SESSION['user_id'], $selectedDate]);
 try {
-    $lastRelais = fetchAssoc("SELECT amount FROM daily_relais WHERE user_id = ? AND relais_date = ? ORDER BY id DESC LIMIT 1", [$_SESSION['user_id'], $todayDate]);
+    $lastRelais = fetchAssoc("SELECT amount FROM daily_relais WHERE user_id = ? AND relais_date = ? ORDER BY id DESC LIMIT 1", [$_SESSION['user_id'], $selectedDate]);
 } catch (Exception $e) { $lastRelais = []; }
 try {
-    $lastDepense = fetchAssoc("SELECT amount FROM daily_paiements WHERE user_id = ? AND paiement_date = ? ORDER BY id DESC LIMIT 1", [$_SESSION['user_id'], $todayDate]);
+    $lastDepense = fetchAssoc("SELECT amount FROM daily_paiements WHERE user_id = ? AND paiement_date = ? ORDER BY id DESC LIMIT 1", [$_SESSION['user_id'], $selectedDate]);
 } catch (Exception $e) { $lastDepense = []; }
 // Ecart de caisse initial (miroir des inputs : dernières valeurs saisies) :
 // versement - vente du jour + trosa + prepaye - paiement - relais + mobile money
-$ecartInitial = (float)($lastVersement['amount'] ?? 0) - (float)($todaySales['revenue'] ?? 0) + (float)($savedReport['trosa'] ?? 0) + (float)($savedReport['prepaye'] ?? 0) - (float)($lastDepense['amount'] ?? 0) - (float)($lastRelais['amount'] ?? 0) + (float)($savedReport['nofy'] ?? 0);
+$ecartInitial = (float)($lastVersement['amount'] ?? 0) - (float)($daySales['revenue'] ?? 0) + (float)($savedReport['trosa'] ?? 0) + (float)($savedReport['prepaye'] ?? 0) - (float)($lastDepense['amount'] ?? 0) - (float)($lastRelais['amount'] ?? 0) + (float)($savedReport['nofy'] ?? 0);
 
 require __DIR__ . '/../layout.php';
 ?>
 
+<div class="mb-6 rounded-lg bg-white p-4 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <form method="GET" action="<?php echo url('pos'); ?>" class="flex flex-wrap items-end gap-3">
+            <div>
+                <label for="pos-date" class="mb-1 block text-xs font-medium text-[#706f6c] dark:text-[#A1A09A]">Date d'enregistrement des ventes</label>
+                <input
+                    type="date"
+                    id="pos-date"
+                    name="date"
+                    value="<?php echo htmlspecialchars($selectedDate); ?>"
+                    min="1970-01-01"
+                    max="<?php echo $todayDate; ?>"
+                    onchange="this.form.submit()"
+                    class="w-full rounded-lg border border-[#e3e3e0] bg-white px-3 py-2 text-sm text-[#1b1b18] shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#FDFDFC]"
+                >
+            </div>
+            <button type="submit" class="rounded-lg border border-[#e3e3e0] px-4 py-2 text-sm font-medium text-[#706f6c] transition hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:text-[#A1A09A]">Afficher</button>
+            <a href="<?php echo url('pos'); ?>?add_stock=1"
+               class="rounded-lg bg-[#22c55e] px-4 py-2 text-sm font-medium text-[#fff] hover:bg-[#16a34a] transition">
+                <svg class="h-4 w-4 fill-current text-white" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+                Ajout de stock
+            </a>
+            <?php if (!$isToday): ?>
+                <a href="<?php echo url('pos'); ?>" class="rounded-lg bg-[#8B4513] px-4 py-2 text-sm font-medium text-[#FDFDFC] transition hover:bg-[#A0522D]">Aujourd'hui</a>
+            <?php endif; ?>
+        </form>
+        <p class="text-xs font-medium <?php echo $isToday ? 'text-[#706f6c] dark:text-[#A1A09A]' : 'text-[#FF750F]'; ?>">
+            <?php if ($isToday): ?>
+                Les ventes seront enregistrées à la date du jour.
+            <?php else: ?>
+                Enregistrement pour le <?php echo date('d/m/Y', strtotime($selectedDate)); ?>.
+            <?php endif; ?>
+        </p>
+    </div>
+</div>
+
 <div class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
     <div class="rounded-lg bg-white p-4 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
-        <p class="text-2xl font-bold text-[#8B4513]"><?php echo number_format((float)$todaySales['revenue'], 0, ',', ' '); ?> Ar</p>
-        <p class="mt-0.5 text-xs text-[#706f6c] dark:text-[#A1A09A]">Ventes du jour</p>
+        <p class="text-2xl font-bold text-[#8B4513]"><?php echo number_format((float)$daySales['revenue'], 0, ',', ' '); ?> Ar</p>
+        <p class="mt-0.5 text-xs text-[#706f6c] dark:text-[#A1A09A]">Ventes <?php echo $dateLabel; ?></p>
     </div>
     <div class="rounded-lg bg-white p-4 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
         <p id="ecart-value" class="text-2xl font-bold text-[#8B4513]"><?php echo number_format($ecartInitial, 0, ',', ' '); ?> Ar</p>
         <p class="mt-0.5 text-xs text-[#706f6c] dark:text-[#A1A09A]">Ecart de caisse</p>
     </div>
     <div class="rounded-lg bg-white p-4 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
-        <p class="text-2xl font-bold text-[#1b1b18] dark:text-[#FDFDFC]"><?php echo (int)$todaySales['sale_count']; ?></p>
-        <p class="mt-0.5 text-xs text-[#706f6c] dark:text-[#A1A09A]">Transactions du jour</p>
+        <p class="text-2xl font-bold text-[#1b1b18] dark:text-[#FDFDFC]"><?php echo (int)$daySales['sale_count']; ?></p>
+        <p class="mt-0.5 text-xs text-[#706f6c] dark:text-[#A1A09A]">Transactions <?php echo $dateLabel; ?></p>
     </div>
     <div class="rounded-lg bg-white p-4 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
-        <p class="text-2xl font-bold text-[#8B4513]"><?php echo (int)$todaySales['items_sold']; ?></p>
-        <p class="mt-0.5 text-xs text-[#706f6c] dark:text-[#A1A09A]">Articles vendus aujourd'hui</p>
+        <p class="text-2xl font-bold text-[#8B4513]"><?php echo (int)$daySales['items_sold']; ?></p>
+        <p class="mt-0.5 text-xs text-[#706f6c] dark:text-[#A1A09A]">Articles vendus <?php echo $isToday ? "aujourd'hui" : 'le ' . date('d/m/Y', strtotime($selectedDate)); ?></p>
     </div>
 </div>
 
@@ -74,7 +142,7 @@ require __DIR__ . '/../layout.php';
         </div>
 
         <div class="mb-4 space-y-3">
-            <label class="block text-xs font-medium text-[#706f6c] dark:text-[#A1A09A]">Rapport du jour</label>
+            <label class="block text-xs font-medium text-[#706f6c] dark:text-[#A1A09A]">Rapport <?php echo $dateLabel; ?></label>
             <div class="grid grid-cols-2 gap-3">
                 <div>
                     <label class="mb-1 block text-[10px] font-medium text-[#706f6c] dark:text-[#A1A09A]">Cash</label>
@@ -135,16 +203,21 @@ require __DIR__ . '/../layout.php';
 
         <div id="product-grid" class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-2">
             <?php foreach ($products as $product): ?>
+            <?php
+                $trackStock = (int)$product['track_stock'] === 1;
+                $maxQty = $trackStock ? (int)$product['quantity'] : 999999999;
+            ?>
             <div class="product-card group relative flex flex-wrap items-center gap-4 rounded-lg bg-white p-4 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] transition hover:border-[#8B4513] disabled:cursor-not-allowed disabled:opacity-50 dark:bg-[#161615]"
                  data-product-id="<?php echo $product['id']; ?>"
                  data-name="<?php echo htmlspecialchars($product['name']); ?>"
                  data-price="<?php echo $product['price']; ?>"
-                 data-max="<?php echo $product['quantity']; ?>"
+                 data-max="<?php echo $maxQty; ?>"
+                 data-track-stock="<?php echo $trackStock ? 1 : 0; ?>"
                  data-unit="<?php echo htmlspecialchars($product['unit']); ?>"
-                 <?php echo $product['quantity'] <= 0 ? 'data-disabled="1"' : ''; ?>>
+                 <?php echo ($trackStock && $product['quantity'] <= 0) ? 'data-disabled="1"' : ''; ?>>
                 <div class="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[#FDF3EA] dark:bg-[#0a0a0a]">
                     <?php if (!empty($product['image'])): ?>
-                        <img src="<?php echo htmlspecialchars($product['image']); ?>" alt="<?php echo htmlspecialchars($product['name']); ?>" class="h-full w-full object-cover" />
+                        <img src="<?php echo url('uploads/' . htmlspecialchars($product['image'])); ?>" alt="<?php echo htmlspecialchars($product['name']); ?>" class="h-full w-full object-cover" />
                     <?php else: ?>
                         <span class="text-lg font-bold text-[#8B4513]"><?php echo htmlspecialchars(mb_strtoupper(mb_substr($product['name'], 0, 1))); ?></span>
                     <?php endif; ?>
@@ -152,8 +225,12 @@ require __DIR__ . '/../layout.php';
                 <div class="min-w-0 flex-1">
                     <p class="truncate text-sm font-semibold text-[#1b1b18] dark:text-[#FDFDFC]"><?php echo htmlspecialchars($product['name']); ?></p>
                     <p class="mt-0.5 text-sm font-medium text-[#8B4513]"><?php echo number_format((float)$product['price'], 0, ',', ' '); ?> Ar</p>
-                    <p class="<?php echo $product['low_stock'] ? 'mt-0.5 text-xs font-medium text-[#FF750F]' : 'mt-0.5 text-xs text-[#706f6c] dark:text-[#A1A09A]'; ?>">
-                        <?php echo (int)$product['quantity']; ?> <?php echo htmlspecialchars($product['unit']); ?> en stock
+                    <p class="<?php echo ($trackStock && $product['low_stock']) ? 'mt-0.5 text-xs font-medium text-[#FF750F]' : 'mt-0.5 text-xs text-[#706f6c] dark:text-[#A1A09A]'; ?>">
+                        <?php if ($trackStock): ?>
+                            <?php echo (int)$product['quantity']; ?> <?php echo htmlspecialchars($product['unit']); ?> en stock
+                        <?php else: ?>
+                            Stock non suivi
+                        <?php endif; ?>
                     </p>
                 </div>
                 <div class="qty-controls hidden w-[112px] shrink-0 flex-wrap items-center justify-center gap-1" style="width: 50%;">
@@ -168,7 +245,15 @@ require __DIR__ . '/../layout.php';
                         <button type="button" data-pay="mobile" title="Mobile Money" onclick="setPayMethod(<?php echo $product['id']; ?>, 'mobile')" class="pay-btn rounded-md border border-[#e3e3e0] bg-white px-1 py-1 text-[10px] font-medium leading-tight text-[#706f6c] transition hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:bg-transparent dark:text-[#A1A09A]">Mobile</button>
                     </div>
                 </div>
-                <span class="grid-add-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[#8B4513] text-[#8B4513] transition group-hover:opacity-100 <?php echo $product['quantity'] <= 0 ? '' : 'opacity-0'; ?>">+</span>
+                <span class="grid-add-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[#8B4513] text-[#8B4513] transition group-hover:opacity-100 <?php echo ($trackStock && $product['quantity'] <= 0) ? '' : 'opacity-0'; ?>">+</span>
+                <?php if ($trackStock === 1 && ($_SESSION['user_role'] ?? '') === 'administrateur'): ?>
+                    <button class="absolute top-1 right-1 rounded-lg bg-green-500 text-white text-xs font-bold px-2 py-1 stock-add-btn"
+                            data-product-id="<?php echo $product['id']; ?>"
+                            data-initial-stock="<?php echo $product['quantity']; ?>"
+                            title="Ajouter stock">
+                        <svg class="h-3 w-3 fill-current text-white" viewBox="0 0 24 24"><path d="M12 7v1l6.38 5.32a2 2 0 0 0 1.82 1.06L21 12l-5-5L12 7v6m0 3v6"/></svg>
+                    </button>
+                <?php endif; ?>
             </div>
             <?php endforeach; ?>
         </div>
@@ -191,6 +276,7 @@ require __DIR__ . '/../layout.php';
                 </div>
 
                 <form id="checkout-form" method="POST" action="<?php echo url('pos/checkout'); ?>" class="mt-4">
+                    <input type="hidden" name="sale_date" value="<?php echo htmlspecialchars($selectedDate); ?>">
                     <div id="cart-hidden-inputs"></div>
                     <input type="hidden" id="versement-hidden" name="versement" value="">
                     <button type="submit" id="checkout-btn" class="w-full rounded-lg bg-[#8B4513] py-3 px-4 text-sm font-semibold text-[#FDFDFC] hover:bg-[#A0522D] transition shadow-sm">
@@ -209,8 +295,11 @@ let cart = {};
 // Méthode sélectionnée par carte (pour les ajouts / ajustements) : 'cash' par défaut.
 let cardSel = {};
 
-// Vente du jour (PHP, figée au chargement ; MAJ au rechargement après checkout)
-const VENTE_JOUR = <?php echo (float)($todaySales['revenue'] ?? 0); ?>;
+// Date d'activité sélectionnée (jour des ventes saisies)
+const SALE_DATE = <?php echo json_encode($selectedDate); ?>;
+
+// Vente du jour sélectionné (PHP, figée au chargement ; MAJ au rechargement après checkout)
+const VENTE_DATE = <?php echo (float)($daySales['revenue'] ?? 0); ?>;
 
 const DEFAULT_PAY = 'cash';
 const PAY_LABELS = { cash: 'Cash', prepaye: 'Prépayé', trosa: 'Trosa', mobile: 'Mobile' };
@@ -499,7 +588,7 @@ function readAmount(id) {
 }
 
 function buildReportBody() {
-    return 'date=' + encodeURIComponent('<?php echo date('Y-m-d'); ?>') +
+    return 'date=' + encodeURIComponent(SALE_DATE) +
         '&prepaye=' + encodeURIComponent(getReportValue('prepaye')) +
         '&trosa=' + encodeURIComponent(getReportValue('trosa-input')) +
         '&paiement=' + encodeURIComponent(getReportValue('paiement')) +
@@ -534,7 +623,7 @@ function updateEcart() {
     const el = document.getElementById('ecart-value');
     if (!el) return;
     const ecart = readInputAmount('versement')
-        - VENTE_JOUR
+        - VENTE_DATE
         + getReportValue('trosa-input')
         + getReportValue('prepaye')
         - readInputAmount('depense-paiement')
@@ -591,21 +680,21 @@ document.getElementById('save-report').addEventListener('click', function() {
         ? fetch('<?php echo url('pos/save-versement'); ?>', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'amount=' + encodeURIComponent(versementAmount)
+            body: 'amount=' + encodeURIComponent(versementAmount) + '&date=' + encodeURIComponent(SALE_DATE)
         }).then(r => r.json())
         : Promise.resolve({ success: true }));
     requests.push(relaisAmount > 0
         ? fetch('<?php echo url('pos/save-relais'); ?>', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'amount=' + encodeURIComponent(relaisAmount)
+            body: 'amount=' + encodeURIComponent(relaisAmount) + '&date=' + encodeURIComponent(SALE_DATE)
         }).then(r => r.json())
         : Promise.resolve({ success: true }));
     requests.push(depensePaiementAmount > 0
         ? fetch('<?php echo url('pos/save-paiement'); ?>', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'amount=' + encodeURIComponent(depensePaiementAmount)
+            body: 'amount=' + encodeURIComponent(depensePaiementAmount) + '&date=' + encodeURIComponent(SALE_DATE)
         }).then(r => r.json())
         : Promise.resolve({ success: true }));
 
@@ -630,4 +719,117 @@ document.getElementById('save-report').addEventListener('click', function() {
 });
 </script>
 
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.stock-add-btn').forEach(function(button) {
+        button.addEventListener('click', function() {
+            var quantity = prompt('Entrez la quantité de stock à ajouter :', '1');
+            if (quantity === null || isNaN(quantity) || quantity <= 0) {
+                alert('Quantité invalide.');
+                return;
+            }
+            var productId = button.dataset.productId;
+            var unit = button.dataset.unit;
+            // Envoi AJAX vers le front-controller
+            fetch('<?php echo url("pos"); ?>?add_stock=1', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'product_id=' + productId + '&quantity=' + quantity
+            })
+            .then(function(response) {
+                return response.text();
+            })
+            .then(function(text) {
+                if (text.trim() === 'ok') {
+                    alert('Stock ajouté avec succès !');
+                    window.location.reload();
+                } else {
+                    alert('Erreur : ' + text);
+                }
+            })
+            .catch(function(err) {
+                console.error(err);
+                alert('Erreur réseau.');
+            });
+        });
+    });
+});
+// Modal pour ajouter du stock
+const stockModals = {};
+document.querySelectorAll('.stock-add-btn').forEach(button => {
+    button.addEventListener('click', function() {
+        const productId = button.dataset.productId;
+        const initialStock = button.dataset.initialStock;
+        // Créer le modal s'il n'existe pas déjà
+        if (stockModals[productId]) {
+            stockModals[productId].showModal();
+            return;
+        }
+        const modal = document.createElement('div');
+        modal.className = 'fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4';
+        modal.innerHTML = `
+            <div class="bg-white rounded-lg p-6 w-full max-w-md shadow-2xl">
+                <h3 class="text-lg font-bold text-[#1b1b18] mb-4">Ajouter stock</h3>
+                <p class="text-sm text-[#706f6c] mb-4">Produit : <span id="modal-product-name"></span></p>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium">Stock initial : <span id="modal-initial-stock"><?php echo htmlspecialchars($product['quantity']); ?></span> <?php echo htmlspecialchars($product['unit']); ?></label>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium">Quantité à ajouter :</label>
+                    <input type="number" id="modal-quantity" min="1" value="1" class="w-full rounded-lg border border-[#e3e3e0] px-3 py-2 text-sm focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:text-[#FDFDFC]">
+                </div>
+                <div class="flex justify-end gap-2">
+                    <button type="button" id="modal-cancel" class="rounded-lg bg-gray-100 px-4 py-2 text-sm text-[#706f6c] hover:bg-gray-200 transition">Annuler</button>
+                    <button type="button" id="modal-add" class="rounded-lg bg-green-500 text-white px-4 py-2 text-sm font-medium hover:bg-green-600 transition">Ajouter</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        stockModals[productId] = modal;
+        // Pré-remplir le nom du produit
+        document.getElementById('modal-product-name').textContent = '<?php echo htmlspecialchars($product['name']); ?>';
+        // Gestion du bouton Annuler
+        document.getElementById('modal-cancel').addEventListener('click', () => {
+            modal.remove();
+            delete stockModals[productId];
+        });
+        // Gestion du bouton Ajouter
+        document.getElementById('modal-add').addEventListener('click', () => {
+            const quantity = parseInt(document.getElementById('modal-quantity').value);
+            if (isNaN(quantity) || quantity <= 0) {
+                alert('Quantité invalide.');
+                return;
+            }
+            // Fermer le modal
+            modal.remove();
+            delete stockModals[productId];
+            // Envoi AJAX vers le front-controller
+            fetch('<?php echo url("pos"); ?>?add_stock=1', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'product_id=' + productId + '&quantity=' + quantity
+            })
+            .then(function(response) {
+                return response.text();
+            })
+            .then(function(text) {
+                if (text.trim() === 'ok') {
+                    alert('Stock ajouté avec succès !');
+                    window.location.reload();
+                } else {
+                    alert('Erreur : ' + text);
+                }
+            })
+            .catch(function(err) {
+                console.error(err);
+                alert('Erreur réseau.');
+            });
+        });
+    });
+});
+</script>
 <?php require __DIR__ . '/../layout_footer.php'; ?>

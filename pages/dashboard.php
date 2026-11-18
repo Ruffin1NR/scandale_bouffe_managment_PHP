@@ -8,18 +8,26 @@ $withConfirmModal = false;
 <?php
 $stats = fetchAssoc("SELECT
     (SELECT COUNT(*) FROM products WHERE active = 1) as total,
-    (SELECT COUNT(*) FROM products WHERE active = 1 AND quantity <= min_stock) as low_stock,
-    (SELECT COUNT(*) FROM products WHERE active = 1 AND quantity > min_stock) as active,
-    (SELECT COALESCE(SUM(p.price * p.quantity), 0) FROM products p WHERE p.active = 1) as total_value
+    (SELECT COUNT(*) FROM products p JOIN categories c ON c.id = p.category_id WHERE p.active = 1 AND c.track_stock = 1 AND p.quantity <= p.min_stock) as low_stock,
+    (SELECT COUNT(*) FROM products p JOIN categories c ON c.id = p.category_id WHERE p.active = 1 AND c.track_stock = 1 AND p.quantity > p.min_stock) as active,
+    (SELECT COALESCE(SUM(p.price * p.quantity), 0) FROM products p JOIN categories c ON c.id = p.category_id WHERE p.active = 1 AND c.track_stock = 1) as total_value
 ");
 
 $recentProducts = fetchAllAssoc("
-    SELECT p.id, p.name, p.price, p.quantity, p.unit, p.active, p.min_stock
-    FROM products p WHERE p.active = 1
+    SELECT p.id, p.name, p.price, p.quantity, p.unit, p.active, p.min_stock, COALESCE(c.track_stock, 0) AS track_stock
+    FROM products p
+    LEFT JOIN categories c ON c.id = p.category_id
+    WHERE p.active = 1
     ORDER BY p.created_at DESC LIMIT 5
 ");
 
-$lowStockProducts = fetchAllAssoc("SELECT name, quantity, min_stock, unit FROM products WHERE active = 1 AND quantity <= min_stock ORDER BY quantity ASC LIMIT 5");
+$lowStockProducts = fetchAllAssoc("
+    SELECT p.name, p.quantity, p.min_stock, p.unit
+    FROM products p
+    JOIN categories c ON c.id = p.category_id
+    WHERE p.active = 1 AND c.track_stock = 1 AND p.quantity <= p.min_stock
+    ORDER BY p.quantity ASC LIMIT 5
+");
 
 // --- CHART DATA ---
 
@@ -66,7 +74,7 @@ $stockByCategory = fetchAllAssoc("
            COALESCE(SUM(p.quantity * p.price), 0) as cat_value
     FROM products p
     LEFT JOIN categories c ON p.category_id = c.id
-    WHERE p.active = 1
+    WHERE p.active = 1 AND c.track_stock = 1
     GROUP BY c.id, c.name
     ORDER BY product_count DESC
 ");
@@ -142,15 +150,15 @@ for ($i = 11; $i >= 0; $i--) {
     </div>
     <div class="rounded-lg bg-white p-6 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
         <p class="text-3xl font-bold text-[#FF750F]"><?php echo $stats['low_stock'] ?? 0; ?></p>
-        <p class="mt-1 text-sm text-[#706f6c] dark:text-[#A1A09A]">Stock faible</p>
+        <p class="mt-1 text-sm text-[#706f6c] dark:text-[#A1A09A]">Stock faible (suivi)</p>
     </div>
     <div class="rounded-lg bg-white p-6 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
         <p class="text-3xl font-bold text-[#1b1b18] dark:text-[#FDFDFC]"><?php echo $stats['active'] ?? 0; ?></p>
-        <p class="mt-1 text-sm text-[#706f6c] dark:text-[#A1A09A]">Stock actif</p>
+        <p class="mt-1 text-sm text-[#706f6c] dark:text-[#A1A09A]">Stock suivi actif</p>
     </div>
     <div class="rounded-lg bg-white p-6 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
         <p class="text-3xl font-bold text-[#8B4513]"><?php echo number_format((float)($stats['total_value'] ?? 0), 0, ',', ' ') . ' Ar'; ?></p>
-        <p class="mt-1 text-sm text-[#706f6c] dark:text-[#A1A09A]">Valeur totale</p>
+        <p class="mt-1 text-sm text-[#706f6c] dark:text-[#A1A09A]">Valeur stock suivi</p>
     </div>
 </div>
 
@@ -233,7 +241,7 @@ $bm = getPaymentBreakdown($breakdownMonth);
         </div>
     </div> -->
     <div class="rounded-lg bg-white p-6 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
-        <h3 class="text-sm font-semibold text-[#1b1b18] dark:text-[#FDFDFC] mb-4">Stock par categorie</h3>
+        <h3 class="text-sm font-semibold text-[#1b1b18] dark:text-[#FDFDFC] mb-4">Stock suivi par categorie</h3>
         <div class="relative flex items-center justify-center" style="height: 260px;">
             <canvas id="chart-stock-category"></canvas>
         </div>
@@ -251,7 +259,7 @@ $bm = getPaymentBreakdown($breakdownMonth);
 <div class="mb-8 rounded-lg bg-white p-6 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
     <h3 class="text-sm font-semibold text-[#FF750F] mb-4 flex items-center gap-2">
         <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-        Alertes stock
+        Alertes stock (produits suivis)
     </h3>
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         <?php foreach ($lowStockProducts as $p): ?>
@@ -283,7 +291,7 @@ $bm = getPaymentBreakdown($breakdownMonth);
                 </thead>
                 <tbody class="divide-y divide-[#e3e3e0] dark:divide-[#3E3E3A]">
                     <?php if (empty($recentProducts)): ?>
-                    <tr><td colspan="4" class="px-6 py-8 text-center text-sm text-[#706f6c] dark:text-[#A1A09A]">Aucun produit en stock.</td></tr>
+                    <tr><td colspan="4" class="px-6 py-8 text-center text-sm text-[#706f6c] dark:text-[#A1A09A]">Aucun produit.</td></tr>
                     <?php else: ?>
                     <?php foreach ($recentProducts as $product): ?>
                     <tr class="transition hover:bg-[#FDFDFC] dark:hover:bg-[#1a1a1a]">
@@ -292,10 +300,14 @@ $bm = getPaymentBreakdown($breakdownMonth);
                         </td>
                         <td class="px-6 py-4 text-sm text-[#1b1b18] dark:text-[#FDFDFC]"><?php echo number_format((float)$product['price'], 0, ',', ' ') . ' Ar'; ?></td>
                         <td class="px-6 py-4 text-sm">
-                            <?php if ($product['quantity'] <= $product['min_stock']): ?>
-                            <span class="inline-flex items-center rounded-full bg-[#FF750F]/10 px-2.5 py-1 text-xs font-medium text-[#FF750F]"><?php echo $product['quantity']; ?> <?php echo htmlspecialchars($product['unit']); ?> &middot; stock bas</span>
+                            <?php if (!empty($product['track_stock'])): ?>
+                                <?php if ($product['quantity'] <= $product['min_stock']): ?>
+                                <span class="inline-flex items-center rounded-full bg-[#FF750F]/10 px-2.5 py-1 text-xs font-medium text-[#FF750F]"><?php echo $product['quantity']; ?> <?php echo htmlspecialchars($product['unit']); ?> &middot; stock bas</span>
+                                <?php else: ?>
+                                <span class="inline-flex items-center rounded-full bg-[#8B4513]/10 px-2.5 py-1 text-xs font-medium text-[#8B4513]"><?php echo $product['quantity']; ?> <?php echo htmlspecialchars($product['unit']); ?></span>
+                                <?php endif; ?>
                             <?php else: ?>
-                            <span class="inline-flex items-center rounded-full bg-[#8B4513]/10 px-2.5 py-1 text-xs font-medium text-[#8B4513]"><?php echo $product['quantity']; ?> <?php echo htmlspecialchars($product['unit']); ?></span>
+                            <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 dark:bg-gray-900/30 dark:text-gray-400">Non suivi</span>
                             <?php endif; ?>
                         </td>
                         <td class="px-6 py-4 text-sm">

@@ -29,6 +29,7 @@ $categories = fetchAllAssoc("
                 <tr>
                     <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#706f6c] dark:text-[#A1A09A]">Nom</th>
                     <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#706f6c] dark:text-[#A1A09A]">Description</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-[#706f6c] dark:text-[#A1A09A]">Stock</th>
                     <th class="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-[#706f6c] dark:text-[#A1A09A]">Produits</th>
                     <th class="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-[#706f6c] dark:text-[#A1A09A]">Actions</th>
                 </tr>
@@ -36,13 +37,20 @@ $categories = fetchAllAssoc("
             <tbody class="divide-y divide-[#e3e3e0] dark:divide-[#3E3E3A]">
                 <?php if (empty($categories)): ?>
                 <tr>
-                    <td colspan="4" class="px-6 py-12 text-center text-sm text-[#706f6c] dark:text-[#A1A09A]">Aucune categorie.</td>
+                    <td colspan="5" class="px-6 py-12 text-center text-sm text-[#706f6c] dark:text-[#A1A09A]">Aucune categorie.</td>
                 </tr>
                 <?php else: ?>
                 <?php foreach ($categories as $cat): ?>
                 <tr class="transition hover:bg-[#FDFDFC] dark:hover:bg-[#1a1a1a]">
                     <td class="px-6 py-4 font-medium text-[#1b1b18] dark:text-[#FDFDFC]"><?php echo htmlspecialchars($cat['name']); ?></td>
                     <td class="px-6 py-4 text-sm text-[#706f6c] dark:text-[#A1A09A]"><?php echo htmlspecialchars($cat['description'] ?? '-'); ?></td>
+                    <td class="px-6 py-4">
+                        <?php if (!empty($cat['track_stock'])): ?>
+                            <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-1 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-400">Suivi</span>
+                        <?php else: ?>
+                            <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 dark:bg-gray-900/30 dark:text-gray-400">Non suivi</span>
+                        <?php endif; ?>
+                    </td>
                     <td class="px-6 py-4 text-center">
                         <span class="inline-flex items-center rounded-full bg-[#8B4513]/10 px-2.5 py-1 text-xs font-medium text-[#8B4513]"><?php echo (int)$cat['product_count']; ?> produit(s)</span>
                     </td>

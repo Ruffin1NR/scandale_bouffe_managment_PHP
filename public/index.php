@@ -120,6 +120,68 @@ switch ($page) {
                 require __DIR__ . '/../pages/inventory/show.php';
                 break;
 
+            case 'movements':
+                require __DIR__ . '/../pages/inventory/movements.php';
+                break;
+
+            case 'movement':
+                if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                    header('Location: ' . url('inventory'));
+                    exit;
+                }
+                $movementProductId = (int)($_POST['product_id'] ?? 0);
+                $movementType = (string)($_POST['movement_type'] ?? '');
+                $movementQuantity = max(0, (int)($_POST['quantity'] ?? 0));
+                $movementNote = mb_substr(trim((string)($_POST['note'] ?? '')), 0, 255);
+                if ($movementProductId <= 0 || !in_array($movementType, ['in', 'out'], true) || $movementQuantity <= 0) {
+                    $_SESSION['error'] = "Mouvement de stock invalide.";
+                    header('Location: ' . url('inventory'));
+                    exit;
+                }
+                $movementUserId = (int)($_SESSION['user_id'] ?? 0) ?: null;
+                $pdo = $GLOBALS['pdo'];
+                $pdo->beginTransaction();
+                try {
+                    $movementProduct = fetchAssoc("
+                        SELECT p.id, p.name, p.quantity, COALESCE(c.track_stock, 0) AS track_stock
+                        FROM products p
+                        LEFT JOIN categories c ON c.id = p.category_id
+                        WHERE p.id = ? AND p.active = 1
+                        FOR UPDATE
+                    ", [$movementProductId]);
+                    if (empty($movementProduct) || (int)$movementProduct['track_stock'] !== 1) {
+                        throw new Exception("Produit introuvable ou non suivi.");
+                    }
+                    $currentQuantity = (int)$movementProduct['quantity'];
+                    if ($movementType === 'out' && $movementQuantity > $currentQuantity) {
+                        throw new Exception("Stock insuffisant pour \"" . $movementProduct['name'] . "\" (disponible : $currentQuantity).");
+                    }
+
+                    ensureInitialStockMovement($movementProductId, $currentQuantity, 'Stock initial', $movementUserId);
+
+                    if ($movementType === 'in') {
+                        query("UPDATE products SET quantity = quantity + ?, updated_at = NOW() WHERE id = ?", [$movementQuantity, $movementProductId]);
+                    } else {
+                        query("UPDATE products SET quantity = quantity - ?, updated_at = NOW() WHERE id = ?", [$movementQuantity, $movementProductId]);
+                    }
+
+                    if ($movementNote === '') {
+                        $movementNote = $movementType === 'in' ? 'Entrée manuelle' : 'Sortie manuelle';
+                    }
+                    addStockMovement($movementProductId, $movementType, $movementQuantity, 'manual', $movementNote, null, $movementUserId);
+
+                    $pdo->commit();
+                    $_SESSION['success'] = "Mouvement de stock enregistré.";
+                } catch (PDOException $e) {
+                    $pdo->rollBack();
+                    $_SESSION['error'] = "Erreur lors de l'enregistrement du mouvement.";
+                } catch (Exception $e) {
+                    $pdo->rollBack();
+                    $_SESSION['error'] = $e->getMessage();
+                }
+                header('Location: ' . url('inventory/movements?id=' . $movementProductId));
+                exit;
+
             case 'store':
                 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
                     header('Location: ' . url('inventory'));
@@ -130,15 +192,16 @@ switch ($page) {
                 $description = trim($_POST['description'] ?? '');
                 $categoryRaw = trim((string)($_POST['category_id'] ?? ''));
                 $category_id = (int)$categoryRaw;
-                $catExists = $category_id > 0 ? fetchAssoc("SELECT id FROM categories WHERE id = ?", [$category_id]) : [];
+                $catExists = $category_id > 0 ? fetchAssoc("SELECT id, track_stock FROM categories WHERE id = ?", [$category_id]) : [];
                 if (empty($catExists)) {
                     $_SESSION['error'] = "La catégorie est obligatoire. Veuillez en choisir une dans la liste.";
                     header('Location: ' . url('inventory/create'));
                     exit;
                 }
                 $unit = $_POST['unit'] ?? 'pcs';
-                $min_stock = (int)($_POST['min_stock'] ?? 5);
-                $quantity = (float)($_POST['quantity'] ?? 0);
+                $trackStock = (int)($catExists['track_stock'] ?? 0) === 1;
+                $min_stock = $trackStock ? max(0, (int)($_POST['min_stock'] ?? 0)) : 0;
+                $quantity = $trackStock ? max(0, (int)($_POST['quantity'] ?? 0)) : 0;
                 $image = null;
 
                 if (!empty($_FILES['image']['tmp_name']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
@@ -166,11 +229,22 @@ switch ($page) {
                 }
 
                 if ($name !== '') {
+                    $pdo = $GLOBALS['pdo'];
+                    $pdo->beginTransaction();
                     try {
                         query("INSERT INTO products (name, description, price, category_id, unit, min_stock, quantity, image, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())", [$name, $description, $price, $category_id, $unit, $min_stock, $quantity, $image]);
+                        $newProductId = (int)$pdo->lastInsertId();
+                        if ($trackStock) {
+                            addStockMovement($newProductId, 'initial', $quantity, 'initial', 'Création du produit', null, (int)($_SESSION['user_id'] ?? 0) ?: null);
+                        }
+                        $pdo->commit();
                         $_SESSION['success'] = "Produit créé avec succès.";
-                    } catch (Exception $e) {
+                    } catch (PDOException $e) {
+                        $pdo->rollBack();
                         $_SESSION['error'] = "Impossible de créer le produit. Vérifiez les informations saisies.";
+                    } catch (Exception $e) {
+                        $pdo->rollBack();
+                        $_SESSION['error'] = $e->getMessage();
                     }
                 } else {
                     $_SESSION['error'] = "Le nom du produit est obligatoire.";
@@ -188,20 +262,34 @@ switch ($page) {
                     header('Location: ' . url('inventory'));
                     exit;
                 }
+                $existingProduct = fetchAssoc("
+                    SELECT p.id, p.quantity, COALESCE(c.track_stock, 0) AS track_stock
+                    FROM products p
+                    LEFT JOIN categories c ON c.id = p.category_id
+                    WHERE p.id = ? AND p.active = 1
+                ", [$id]);
+                if (empty($existingProduct)) {
+                    $_SESSION['error'] = "Produit introuvable.";
+                    header('Location: ' . url('inventory'));
+                    exit;
+                }
+                $oldTrackStock = (int)$existingProduct['track_stock'] === 1;
+                $oldQuantity = (int)$existingProduct['quantity'];
                 $name = trim($_POST['name'] ?? '');
                 $price = (float)($_POST['price'] ?? 0);
                 $description = trim($_POST['description'] ?? '');
                 $categoryRaw = trim((string)($_POST['category_id'] ?? ''));
                 $category_id = (int)$categoryRaw;
-                $catExists = $category_id > 0 ? fetchAssoc("SELECT id FROM categories WHERE id = ?", [$category_id]) : [];
+                $catExists = $category_id > 0 ? fetchAssoc("SELECT id, track_stock FROM categories WHERE id = ?", [$category_id]) : [];
                 if (empty($catExists)) {
                     $_SESSION['error'] = "La catégorie est obligatoire. Veuillez en choisir une dans la liste.";
                     header('Location: ' . url('inventory/edit?id=' . $id));
                     exit;
                 }
                 $unit = $_POST['unit'] ?? 'pcs';
-                $min_stock = (int)($_POST['min_stock'] ?? 0);
-                $quantity = (float)($_POST['quantity'] ?? 0);
+                $trackStock = (int)($catExists['track_stock'] ?? 0) === 1;
+                $min_stock = $trackStock ? max(0, (int)($_POST['min_stock'] ?? 0)) : 0;
+                $quantity = $trackStock ? max(0, (int)($_POST['quantity'] ?? 0)) : 0;
                 $currentImage = $_POST['current_image'] ?? '';
                 $image = $currentImage !== '' ? $currentImage : null;
 
@@ -233,11 +321,41 @@ switch ($page) {
                 }
 
                 if ($name !== '') {
+                    $pdo = $GLOBALS['pdo'];
+                    $pdo->beginTransaction();
                     try {
                         query("UPDATE products SET name = ?, description = ?, price = ?, category_id = ?, unit = ?, min_stock = ?, quantity = ?, image = ?, updated_at = NOW() WHERE id = ?", [$name, $description, $price, $category_id, $unit, $min_stock, $quantity, $image, $id]);
+
+                        $movementUserId = (int)($_SESSION['user_id'] ?? 0) ?: null;
+                        if ($oldTrackStock) {
+                            ensureInitialStockMovement($id, $oldQuantity, 'Stock initial', $movementUserId);
+                            if ($trackStock) {
+                                $delta = $quantity - $oldQuantity;
+                                if ($delta > 0) {
+                                    addStockMovement($id, 'in', $delta, 'manual', 'Ajustement manuel du stock', null, $movementUserId);
+                                } elseif ($delta < 0) {
+                                    addStockMovement($id, 'out', abs($delta), 'manual', 'Ajustement manuel du stock', null, $movementUserId);
+                                }
+                            } elseif ($oldQuantity > 0) {
+                                addStockMovement($id, 'out', $oldQuantity, 'tracking_disabled', 'Produit déplacé vers une catégorie non suivie', null, $movementUserId);
+                            }
+                        } elseif ($trackStock) {
+                            $hasMovement = fetchAssoc("SELECT id FROM stock_movements WHERE product_id = ? LIMIT 1", [$id]);
+                            if (empty($hasMovement)) {
+                                addStockMovement($id, 'initial', $quantity, 'tracking_enabled', 'Activation du suivi pour ce produit', null, $movementUserId);
+                            } elseif ($quantity > 0) {
+                                addStockMovement($id, 'in', $quantity, 'tracking_enabled', 'Activation du suivi pour ce produit', null, $movementUserId);
+                            }
+                        }
+
+                        $pdo->commit();
                         $_SESSION['success'] = "Produit modifié avec succès.";
-                    } catch (Exception $e) {
+                    } catch (PDOException $e) {
+                        $pdo->rollBack();
                         $_SESSION['error'] = "Impossible de modifier le produit. Vérifiez les informations saisies.";
+                    } catch (Exception $e) {
+                        $pdo->rollBack();
+                        $_SESSION['error'] = $e->getMessage();
                     }
                 } else {
                     $_SESSION['error'] = "Le nom du produit est obligatoire.";
@@ -307,16 +425,52 @@ switch ($page) {
                 $id = (int)($_POST['id'] ?? 0);
                 $name = trim($_POST['name'] ?? '');
                 $description = trim($_POST['description'] ?? '');
+                $track_stock = isset($_POST['track_stock']) ? 1 : 0;
                 if ($name === '') { $_SESSION['error'] = "Le nom est obligatoire."; header('Location: ' . url('categories')); exit; }
                 if ($id > 0) {
                     $existing = fetchAssoc("SELECT id FROM categories WHERE name = ? AND id != ?", [$name, $id]);
                     if ($existing) { $_SESSION['error'] = "Une categorie avec ce nom existe deja."; header('Location: ' . url('categories/edit?id=' . $id)); exit; }
-                    query("UPDATE categories SET name = ?, description = ?, updated_at = NOW() WHERE id = ?", [$name, $description, $id]);
-                    $_SESSION['success'] = "Categorie modifiee.";
+                    $oldCategory = fetchAssoc("SELECT id, track_stock FROM categories WHERE id = ?", [$id]);
+                    if (empty($oldCategory)) { $_SESSION['error'] = "Categorie introuvable."; header('Location: ' . url('categories')); exit; }
+                    $oldTrackStock = (int)$oldCategory['track_stock'] === 1;
+                    $categoryUserId = (int)($_SESSION['user_id'] ?? 0) ?: null;
+                    $pdo = $GLOBALS['pdo'];
+                    $pdo->beginTransaction();
+                    try {
+                        query("UPDATE categories SET name = ?, description = ?, track_stock = ?, updated_at = NOW() WHERE id = ?", [$name, $description, $track_stock, $id]);
+
+                        if ($track_stock === 0) {
+                            $categoryProducts = fetchAllAssoc("SELECT id, quantity FROM products WHERE category_id = ?", [$id]);
+                            if ($oldTrackStock) {
+                                foreach ($categoryProducts as $categoryProduct) {
+                                    $productQuantity = (int)$categoryProduct['quantity'];
+                                    ensureInitialStockMovement((int)$categoryProduct['id'], $productQuantity, 'Stock initial', $categoryUserId);
+                                    if ($productQuantity > 0) {
+                                        addStockMovement((int)$categoryProduct['id'], 'out', $productQuantity, 'tracking_disabled', 'Désactivation du suivi de la catégorie', null, $categoryUserId);
+                                    }
+                                }
+                            }
+                            query("UPDATE products SET quantity = 0, min_stock = 0, updated_at = NOW() WHERE category_id = ?", [$id]);
+                        } elseif (!$oldTrackStock) {
+                            $categoryProducts = fetchAllAssoc("SELECT id, quantity FROM products WHERE category_id = ?", [$id]);
+                            foreach ($categoryProducts as $categoryProduct) {
+                                ensureInitialStockMovement((int)$categoryProduct['id'], (int)$categoryProduct['quantity'], 'Activation du suivi de la catégorie', $categoryUserId);
+                            }
+                        }
+
+                        $pdo->commit();
+                        $_SESSION['success'] = "Categorie modifiee.";
+                    } catch (PDOException $e) {
+                        $pdo->rollBack();
+                        $_SESSION['error'] = "Impossible de modifier la categorie.";
+                    } catch (Exception $e) {
+                        $pdo->rollBack();
+                        $_SESSION['error'] = $e->getMessage();
+                    }
                 } else {
                     $existing = fetchAssoc("SELECT id FROM categories WHERE name = ?", [$name]);
                     if ($existing) { $_SESSION['error'] = "Une categorie avec ce nom existe deja."; header('Location: ' . url('categories/create')); exit; }
-                    query("INSERT INTO categories (name, description, created_at) VALUES (?, ?, NOW())", [$name, $description]);
+                    query("INSERT INTO categories (name, description, track_stock, created_at) VALUES (?, ?, ?, NOW())", [$name, $description, $track_stock]);
                     $_SESSION['success'] = "Categorie creee.";
                 }
                 header('Location: ' . url('categories'));
@@ -325,15 +479,44 @@ switch ($page) {
                 if ($_SERVER['REQUEST_METHOD'] !== 'POST') { header('Location: ' . url('categories')); exit; }
                 $id = (int)($_POST['id'] ?? 0);
                 if ($id > 0) {
-                    $count = fetchAssoc("SELECT COUNT(*) as c FROM products WHERE category_id = ? AND active = 1", [$id]);
-                    if (($count['c'] ?? 0) > 0) {
-                        $_SESSION['error'] = "Impossible de supprimer : des produits sont associes a cette categorie.";
+                    $category = fetchAssoc("SELECT id, track_stock FROM categories WHERE id = ?", [$id]);
+                    if (empty($category)) {
+                        $_SESSION['error'] = "Categorie introuvable.";
                     } else {
-                        $stmt = query("DELETE FROM categories WHERE id = ?", [$id]);
-                        if ($stmt->rowCount() > 0) {
-                            $_SESSION['success'] = "Categorie supprimee.";
+                        $count = fetchAssoc("SELECT COUNT(*) as c FROM products WHERE category_id = ? AND active = 1", [$id]);
+                        if (($count['c'] ?? 0) > 0) {
+                            $_SESSION['error'] = "Impossible de supprimer : des produits sont associes a cette categorie.";
                         } else {
-                            $_SESSION['error'] = "Categorie introuvable.";
+                            $categoryUserId = (int)($_SESSION['user_id'] ?? 0) ?: null;
+                            $pdo = $GLOBALS['pdo'];
+                            $pdo->beginTransaction();
+                            try {
+                                if ((int)$category['track_stock'] === 1) {
+                                    $categoryProducts = fetchAllAssoc("SELECT id, quantity FROM products WHERE category_id = ?", [$id]);
+                                    foreach ($categoryProducts as $categoryProduct) {
+                                        $productQuantity = (int)$categoryProduct['quantity'];
+                                        ensureInitialStockMovement((int)$categoryProduct['id'], $productQuantity, 'Stock initial', $categoryUserId);
+                                        if ($productQuantity > 0) {
+                                            addStockMovement((int)$categoryProduct['id'], 'out', $productQuantity, 'tracking_disabled', 'Suppression de la catégorie', null, $categoryUserId);
+                                        }
+                                    }
+                                }
+                                query("UPDATE products SET quantity = 0, min_stock = 0, updated_at = NOW() WHERE category_id = ?", [$id]);
+                                $stmt = query("DELETE FROM categories WHERE id = ?", [$id]);
+                                if ($stmt->rowCount() > 0) {
+                                    $pdo->commit();
+                                    $_SESSION['success'] = "Categorie supprimee.";
+                                } else {
+                                    $pdo->rollBack();
+                                    $_SESSION['error'] = "Categorie introuvable.";
+                                }
+                            } catch (PDOException $e) {
+                                $pdo->rollBack();
+                                $_SESSION['error'] = "Impossible de supprimer la categorie.";
+                            } catch (Exception $e) {
+                                $pdo->rollBack();
+                                $_SESSION['error'] = $e->getMessage();
+                            }
                         }
                     }
                 } else {
@@ -406,13 +589,67 @@ switch ($page) {
             case 'create':
                 require __DIR__ . '/../pages/admin/sale_create.php';
                 break;
+            case 'edit':
+                $_GET['id'] = (int)($_GET['id'] ?? ($pageParams[1] ?? 0));
+                require __DIR__ . '/../pages/admin/sale_edit.php';
+                break;
+            case 'delete':
+                if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                    header('Location: ' . url('sales'));
+                    exit;
+                }
+                $saleId = (int)($_POST['id'] ?? 0);
+                if ($saleId <= 0) {
+                    $_SESSION['error'] = "Vente introuvable.";
+                    header('Location: ' . url('sales'));
+                    exit;
+                }
+                $pdo = $GLOBALS['pdo'];
+                $pdo->beginTransaction();
+                try {
+                    $sale = fetchAssoc("SELECT id FROM sales WHERE id = ? FOR UPDATE", [$saleId]);
+                    if (empty($sale)) {
+                        throw new Exception("Vente introuvable.");
+                    }
+                    // Remettre en stock les quantités vendues avant de supprimer la vente,
+                    // uniquement pour les produits dont la catégorie est suivie.
+                    $soldItems = fetchAllAssoc("
+                        SELECT si.product_id, si.quantity, p.quantity AS current_quantity, COALESCE(c.track_stock, 0) AS track_stock
+                        FROM sale_items si
+                        LEFT JOIN products p ON p.id = si.product_id
+                        LEFT JOIN categories c ON c.id = p.category_id
+                        WHERE si.sale_id = ?
+                        FOR UPDATE
+                    ", [$saleId]);
+                    $saleUserId = (int)($_SESSION['user_id'] ?? 0) ?: null;
+                    foreach ($soldItems as $soldItem) {
+                        if ((int)$soldItem['track_stock'] === 1) {
+                            $soldProductId = (int)$soldItem['product_id'];
+                            $soldQuantity = (int)$soldItem['quantity'];
+                            ensureInitialStockMovement($soldProductId, (int)($soldItem['current_quantity'] ?? 0), 'Stock initial', $saleUserId);
+                            query("UPDATE products SET quantity = quantity + ? WHERE id = ?", [$soldQuantity, $soldProductId]);
+                            addStockMovement($soldProductId, 'in', $soldQuantity, 'sale_delete', 'Suppression vente #' . $saleId, $saleId, $saleUserId);
+                        }
+                    }
+                    query("DELETE FROM sales WHERE id = ?", [$saleId]);
+                    $pdo->commit();
+                    $_SESSION['success'] = "Vente #$saleId supprimée. Le stock des produits suivis a été réajusté.";
+                } catch (Exception $e) {
+                    $pdo->rollBack();
+                    $_SESSION['error'] = $e->getMessage();
+                }
+                header('Location: ' . url('sales'));
+                exit;
             case 'save-report':
                 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
                     header('Content-Type: application/json');
                     echo json_encode(['success' => false, 'message' => 'Méthode non autorisée.']);
                     exit;
                 }
-                $reportDate = $_POST['date'] ?? date('Y-m-d');
+                $reportDate = normalizeDate($_POST['date'] ?? null);
+                if ($reportDate > date('Y-m-d')) {
+                    $reportDate = date('Y-m-d');
+                }
                 $prepaye = max(0, (float)($_POST['prepaye'] ?? 0));
                 $trosaVal = max(0, (float)($_POST['trosa'] ?? 0));
                 $paiementVal = max(0, (float)($_POST['paiement'] ?? 0));
@@ -451,7 +688,11 @@ switch ($page) {
                     echo json_encode(['success' => false, 'message' => 'Le montant doit être supérieur à 0.']);
                     exit;
                 }
-                query("INSERT INTO daily_deposits (user_id, amount, deposit_date, created_at) VALUES (?, ?, ?, NOW())", [$_SESSION['user_id'], $amount, date('Y-m-d')]);
+                $entryDate = normalizeDate($_POST['date'] ?? null);
+                if ($entryDate > date('Y-m-d')) {
+                    $entryDate = date('Y-m-d');
+                }
+                query("INSERT INTO daily_deposits (user_id, amount, deposit_date, created_at) VALUES (?, ?, ?, NOW())", [$_SESSION['user_id'], $amount, $entryDate]);
                 header('Content-Type: application/json');
                 echo json_encode(['success' => true, 'message' => 'Versement de ' . number_format($amount, 0, ',', ' ') . ' Ar enregistré.']);
                 exit;
@@ -468,7 +709,11 @@ switch ($page) {
                     echo json_encode(['success' => false, 'message' => 'Le montant doit être supérieur à 0.']);
                     exit;
                 }
-                query("INSERT INTO daily_relais (user_id, amount, relais_date, created_at) VALUES (?, ?, ?, NOW())", [$_SESSION['user_id'], $relaisAmount, date('Y-m-d')]);
+                $entryDate = normalizeDate($_POST['date'] ?? null);
+                if ($entryDate > date('Y-m-d')) {
+                    $entryDate = date('Y-m-d');
+                }
+                query("INSERT INTO daily_relais (user_id, amount, relais_date, created_at) VALUES (?, ?, ?, NOW())", [$_SESSION['user_id'], $relaisAmount, $entryDate]);
                 header('Content-Type: application/json');
                 echo json_encode(['success' => true, 'message' => 'Relais de ' . number_format($relaisAmount, 0, ',', ' ') . ' Ar enregistré.']);
                 exit;
@@ -485,7 +730,11 @@ switch ($page) {
                     echo json_encode(['success' => false, 'message' => 'Le montant doit être supérieur à 0.']);
                     exit;
                 }
-                query("INSERT INTO daily_paiements (user_id, amount, paiement_date, created_at) VALUES (?, ?, ?, NOW())", [$_SESSION['user_id'], $paiementAmount, date('Y-m-d')]);
+                $entryDate = normalizeDate($_POST['date'] ?? null);
+                if ($entryDate > date('Y-m-d')) {
+                    $entryDate = date('Y-m-d');
+                }
+                query("INSERT INTO daily_paiements (user_id, amount, paiement_date, created_at) VALUES (?, ?, ?, NOW())", [$_SESSION['user_id'], $paiementAmount, $entryDate]);
                 header('Content-Type: application/json');
                 echo json_encode(['success' => true, 'message' => 'Paiement de ' . number_format($paiementAmount, 0, ',', ' ') . ' Ar enregistré.']);
                 exit;
@@ -496,13 +745,20 @@ switch ($page) {
                     exit;
                 }
 
+                // Jour d'activité choisi dans /pos (aujourd'hui par défaut, jamais dans le futur)
+                $saleDate = normalizeDate($_POST['sale_date'] ?? null);
+                if ($saleDate > date('Y-m-d')) {
+                    $saleDate = date('Y-m-d');
+                }
+                $redirectAfterCheckout = url('pos') . ($saleDate !== date('Y-m-d') ? '?date=' . urlencode($saleDate) : '');
+
                 $items = $_POST['items'] ?? [];
                 $total = 0;
                 $validItems = [];
 
                 if (empty($items)) {
                     $_SESSION['error'] = "Le panier est vide.";
-                    header('Location: ' . url('pos'));
+                    header('Location: ' . $redirectAfterCheckout);
                     exit;
                 }
 
@@ -522,17 +778,23 @@ switch ($page) {
 
                     if ($product_id <= 0 || $qty <= 0) continue;
 
-                    $product = fetchAssoc("SELECT id, name, price, quantity, active FROM products WHERE id = ?", [$product_id]);
+                    $product = fetchAssoc("
+                        SELECT p.id, p.name, p.price, p.quantity, p.active, COALESCE(c.track_stock, 0) AS track_stock
+                        FROM products p
+                        LEFT JOIN categories c ON c.id = p.category_id
+                        WHERE p.id = ?
+                    ", [$product_id]);
 
                     if (!$product || !$product['active']) {
                         $_SESSION['error'] = "Produit #$product_id indisponible.";
-                        header('Location: ' . url('pos'));
+                        header('Location: ' . $redirectAfterCheckout);
                         exit;
                     }
-                    // Stock contrôlé sur le cumul du produit (toutes méthodes confondues)
-                    if ($product['quantity'] < $qtyByProduct[$product_id]) {
+                    // Stock contrôlé sur le cumul du produit (toutes méthodes confondues),
+                    // uniquement pour les catégories avec suivi de stock.
+                    if ((int)$product['track_stock'] === 1 && $product['quantity'] < $qtyByProduct[$product_id]) {
                         $_SESSION['error'] = "Stock insuffisant pour \"" . $product['name'] . "\" (demandé : " . $qtyByProduct[$product_id] . ", disponible : " . $product['quantity'] . ").";
-                        header('Location: ' . url('pos'));
+                        header('Location: ' . $redirectAfterCheckout);
                         exit;
                     }
 
@@ -550,55 +812,97 @@ switch ($page) {
                         'unit_price' => $product['price'],
                         'line_total' => $lineTotal,
                         'pay_method' => $payMethod,
+                        'track_stock' => (int)$product['track_stock'],
                     ];
                 }
 
                 if (empty($validItems)) {
                     $_SESSION['error'] = "Aucun article valide.";
-                    header('Location: ' . url('pos'));
+                    header('Location: ' . $redirectAfterCheckout);
                     exit;
                 }
 
                 // Transaction DB : créer la vente + décrémenter le stock
                 $paymentMethod = in_array($_POST['payment_method'] ?? '', ['cash', 'mobile_money', 'credit']) ? $_POST['payment_method'] : 'cash';
                 $versement = max(0, (float)($_POST['versement'] ?? 0));
+                $saleUserId = (int)($_SESSION['user_id'] ?? 0) ?: null;
                 $pdo = $GLOBALS['pdo'];
                 $pdo->beginTransaction();
                 try {
-                    // Créer la vente
-                    query("INSERT INTO sales (user_id, total, payment_method, created_at) VALUES (?, ?, ?, NOW())", [$_SESSION['user_id'], $total, $paymentMethod]);
+                    // Créer la vente à la date d'activité choisie (heure de saisie conservée)
+                    $saleDateTime = $saleDate . ' ' . date('H:i:s');
+                    query("INSERT INTO sales (user_id, total, payment_method, created_at) VALUES (?, ?, ?, ?)", [$_SESSION['user_id'], $total, $paymentMethod, $saleDateTime]);
                     $saleId = $pdo->lastInsertId();
 
                     foreach ($validItems as $item) {
                         // Créer la ligne de vente (avec son moyen de paiement)
                         query("INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, pay_method) VALUES (?, ?, ?, ?, ?)", [$saleId, $item['product_id'], $item['quantity'], $item['unit_price'], $item['pay_method']]);
 
-                        // Décrémenter le stock
-                        query("UPDATE products SET quantity = quantity - ? WHERE id = ?", [$item['quantity'], $item['product_id']]);
+                        // Décrémenter le stock uniquement pour les produits suivis
+                        if ((int)($item['track_stock'] ?? 0) === 1) {
+                            $movementProductId = (int)($item['product_id'] ?? 0);
+                            $movementQuantity = (int)($item['quantity'] ?? 0);
+                            ensureInitialStockMovement($movementProductId, 0, 'Stock initial', $saleUserId);
+                            query("UPDATE products SET quantity = quantity - ? WHERE id = ?", [$movementQuantity, $movementProductId]);
+                            addStockMovement($movementProductId, 'out', $movementQuantity, 'sale', 'Nouvelle vente #' . $saleId, $saleId, $saleUserId);
+                        }
                     }
 
-                    // Enregistrer le versement du jour
+                    // Enregistrer le versement du jour choisi
                     if ($versement > 0) {
-                        query("INSERT INTO daily_deposits (user_id, amount, deposit_date, created_at) VALUES (?, ?, ?, NOW())", [$_SESSION['user_id'], $versement, date('Y-m-d')]);
+                        query("INSERT INTO daily_deposits (user_id, amount, deposit_date, created_at) VALUES (?, ?, ?, NOW())", [$_SESSION['user_id'], $versement, $saleDate]);
                     }
 
-                    // Ventiler la vente dans le rapport du jour (additif, même date PHP que l'affichage /pos)
-                    $reportDate = date('Y-m-d');
+                    // Ventiler la vente dans le rapport du jour choisi (additif, même date que l'affichage /pos)
+                    $reportDate = $saleDate;
                     query("INSERT INTO daily_reports (user_id, report_date, prepaye, trosa, paiement, nofy, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE prepaye = prepaye + VALUES(prepaye), trosa = trosa + VALUES(trosa), paiement = paiement + VALUES(paiement), nofy = nofy + VALUES(nofy)", [$_SESSION['user_id'], $reportDate, $payTotals['prepaye'], $payTotals['trosa'], $payTotals['cash'], $payTotals['mobile']]);
 
                     $pdo->commit();
                     $methodLabel = match($paymentMethod) { 'mobile_money' => 'Mobile Money', 'credit' => 'Crédit', default => 'Cash' };
-                    $_SESSION['success'] = "Vente enregistrée (" . number_format($total, 0, ',', ' ') . " Ar — $methodLabel)";
+                    $dateSuffix = $saleDate === date('Y-m-d') ? '' : ' pour le ' . date('d/m/Y', strtotime($saleDate));
+                    $_SESSION['success'] = "Vente enregistrée (" . number_format($total, 0, ',', ' ') . " Ar — $methodLabel)$dateSuffix";
                 } catch (Exception $e) {
                     $pdo->rollBack();
                     $_SESSION['error'] = "Erreur lors de l'enregistrement : " . $e->getMessage();
                 }
 
-                header('Location: ' . url('pos'));
+                header('Location: ' . $redirectAfterCheckout);
                 exit;
 
             case 'historique':
                 require __DIR__ . '/../pages/vendor/history.php';
+                exit;
+
+            case 'add_stock':
+                if (empty($_SESSION['user_id']) || $_SESSION['user_role'] !== 'administrateur') {
+                    header('Location: ' . url('pos'));
+                    exit;
+                }
+                $productId = (int)$_POST['product_id'] ?? 0;
+                $quantity = (int)$_POST['quantity'] ?? 0;
+                if ($productId <= 0 || $quantity <= 0) {
+                    $_SESSION['error'] = "Données invalides.";
+                    header('Location: ' . url('pos'));
+                    exit;
+                }
+                $product = fetchAssoc("
+                    SELECT p.id, p.name, p.quantity, COALESCE(c.track_stock, 0) AS track_stock
+                    FROM products p
+                    LEFT JOIN categories c ON c.id = p.category_id
+                    WHERE p.id = ? AND p.active = 1
+                    FOR UPDATE
+                ", [$productId]);
+                if (empty($product) || (int)$product['track_stock'] !== 1) {
+                    $_SESSION['error'] = "Produit introuvable ou non suivi.";
+                    header('Location: ' . url('pos'));
+                    exit;
+                }
+                $newQuantity = (int)$product['quantity'] + $quantity;
+                query("UPDATE products SET quantity = ?, updated_at = NOW() WHERE id = ?", [$newQuantity, $productId]);
+                $userId = (int)$_SESSION['user_id'] ?? 0;
+                addStockMovement($productId, 'in', $quantity, 'stock added via POS', null, null, $userId);
+                $_SESSION['success'] = "Stock de " . $quantity . " ajoutée à " . $product['name'] . " (stock final : " . $newQuantity . ").";
+                header('Location: ' . url('pos') . '?success=1');
                 exit;
 
             default:

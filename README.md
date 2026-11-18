@@ -8,8 +8,8 @@ Application de gestion complète pour une activité de vente de bouffe, dévelop
 - **Tableau de bord administrateur** : vue d'ensemble des ventes, vendeurs, catégories et inventaire
 - **Gestion des vendeurs** : création, consultation, détail et historique par vendeur
 - **Point de vente (POS)** : interface de création de ventes pour les vendeurs
-- **Inventaire** : CRUD complet des produits ( création, modification, affichage, suppression)
-- **Gestion des catégories** : organisation des produits par catégorie
+- **Inventaire** : CRUD complet des produits (création, modification, affichage, suppression) avec suivi de stock configurable par catégorie
+- **Gestion des catégories** : organisation des produits par catégorie et activation du suivi de stock
 - **Profil utilisateur** : édition du profil personnel
 
 ## Stack technique
@@ -41,7 +41,8 @@ cd scandale_bouffe_managment_PHP
 1. Ouvrez phpMyAdmin (`http://localhost/phpmyadmin`)
 2. Créez une base de données nommée `scandale_bouffe`
 3. Importez le fichier SQL fourni dans le projet
-4. Vérifiez les paramètres de connexion dans `config/db.php` :
+4. Pour une base existante sans colonne `track_stock`, exécutez `database/migrate_track_stock.sql`.
+5. Vérifiez les paramètres de connexion dans `config/db.php` :
 
 ```php
 $dbHost = 'localhost';
@@ -87,6 +88,7 @@ scandale_bouffe_management/
 │   │   ├── categories.php
 │   │   ├── category_form.php
 │   │   ├── sale_create.php
+│   │   ├── sale_edit.php
 │   │   ├── sales.php
 │   │   ├── vendor_create.php
 │   │   ├── vendor_detail.php

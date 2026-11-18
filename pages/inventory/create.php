@@ -35,12 +35,13 @@ require __DIR__ . '/../layout.php';
             <select name="category_id" required class="w-full input-field">
                 <option value="">Sélectionner une catégorie</option>
                 <?php
-                $allCategories = fetchAllAssoc("SELECT id, name FROM categories ORDER BY name");
+                $allCategories = fetchAllAssoc("SELECT id, name, track_stock FROM categories ORDER BY name");
                 foreach ($allCategories as $cat):
                 ?>
-                <option value="<?php echo $cat['id']; ?>"><?php echo htmlspecialchars($cat['name']); ?></option>
+                <option value="<?php echo $cat['id']; ?>" data-track-stock="<?php echo (int)$cat['track_stock']; ?>"><?php echo htmlspecialchars($cat['name']); ?><?php echo $cat['track_stock'] ? ' (stock suivi)' : ''; ?></option>
                 <?php endforeach; ?>
             </select>
+            <p class="mt-1 text-xs text-[#706f6c] dark:text-[#A1A09A]">Le stock n'est disponible que pour les catégories avec suivi de stock.</p>
         </div>
 
         <div>
@@ -55,15 +56,15 @@ require __DIR__ . '/../layout.php';
             </select>
         </div>
 
-        <div>
+        <div class="hidden" data-stock-field>
             <label class="block text-sm font-medium text-[#706f6c] dark:text-[#A1A09A] mb-2">Stock minimum</label>
-            <input type="number" name="min_stock" min="0" value="5" required
+            <input type="number" name="min_stock" min="0" value="5" required disabled
                 class="w-full input-field">
         </div>
 
-        <div>
+        <div class="hidden" data-stock-field>
             <label class="block text-sm font-medium text-[#706f6c] dark:text-[#A1A09A] mb-2">Quantité initiale</label>
-            <input type="number" name="quantity" min="0" step="0.01" value="0"
+            <input type="number" name="quantity" min="0" step="0.01" value="0" disabled
                 class="w-full input-field">
         </div>
 
@@ -80,5 +81,27 @@ require __DIR__ . '/../layout.php';
         </button>
     </form>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const categorySelect = document.querySelector('select[name="category_id"]');
+    const stockFields = document.querySelectorAll('[data-stock-field]');
+    if (!categorySelect) return;
+
+    function syncStockFields() {
+        const option = categorySelect.options[categorySelect.selectedIndex];
+        const tracked = option && option.dataset.trackStock === '1';
+        stockFields.forEach(function (field) {
+            field.classList.toggle('hidden', !tracked);
+            field.querySelectorAll('input').forEach(function (input) {
+                input.disabled = !tracked;
+            });
+        });
+    }
+
+    categorySelect.addEventListener('change', syncStockFields);
+    syncStockFields();
+});
+</script>
 
 <?php require __DIR__ . '/../layout_footer.php'; ?>

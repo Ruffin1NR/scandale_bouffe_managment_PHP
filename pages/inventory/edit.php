@@ -9,7 +9,7 @@ if ($id <= 0) {
     exit;
 }
 
-$product = fetchAssoc("SELECT p.*, c.name as category_name FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.id = ? AND p.active = 1", [$id]);
+$product = fetchAssoc("SELECT p.*, c.name AS category_name, COALESCE(c.track_stock, 0) AS track_stock FROM products p LEFT JOIN categories c ON p.category_id = c.id WHERE p.id = ? AND p.active = 1", [$id]);
 if (!$product) {
     header('Location: ' . url('inventory'));
     exit;
@@ -58,10 +58,10 @@ require __DIR__ . '/../layout.php';
                     <select name="category_id" required class="w-full input-field">
                         <option value="">Sélectionner une catégorie</option>
                         <?php
-                        $allCategories = fetchAllAssoc("SELECT id, name FROM categories ORDER BY name");
+                        $allCategories = fetchAllAssoc("SELECT id, name, track_stock FROM categories ORDER BY name");
                         foreach ($allCategories as $cat):
                         ?>
-                        <option value="<?php echo $cat['id']; ?>" <?php echo $product['category_id'] == $cat['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($cat['name']); ?></option>
+                        <option value="<?php echo $cat['id']; ?>" data-track-stock="<?php echo (int)$cat['track_stock']; ?>" <?php echo $product['category_id'] == $cat['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($cat['name']); ?><?php echo $cat['track_stock'] ? ' (stock suivi)' : ''; ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -76,14 +76,14 @@ require __DIR__ . '/../layout.php';
                 </div>
             </div>
 
-            <div>
+            <div class="hidden" data-stock-field>
                 <label class="block text-sm font-medium text-[#706f6c] dark:text-[#A1A09A] mb-2">Quantité en stock</label>
-                <input type="number" name="quantity" min="0" step="0.01" value="<?php echo htmlspecialchars($product['quantity']); ?>" class="w-full input-field">
+                <input type="number" name="quantity" min="0" step="0.01" value="<?php echo htmlspecialchars($product['quantity']); ?>" class="w-full input-field" disabled>
             </div>
 
-            <div>
+            <div class="hidden" data-stock-field>
                 <label class="block text-sm font-medium text-[#706f6c] dark:text-[#A1A09A] mb-2">Stock minimum</label>
-                <input type="number" name="min_stock" min="0" value="<?php echo htmlspecialchars($product['min_stock']); ?>" class="w-full input-field">
+                <input type="number" name="min_stock" min="0" value="<?php echo htmlspecialchars($product['min_stock']); ?>" class="w-full input-field" disabled>
             </div>
 
             <div>
@@ -103,5 +103,27 @@ require __DIR__ . '/../layout.php';
         </form>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const categorySelect = document.querySelector('select[name="category_id"]');
+    const stockFields = document.querySelectorAll('[data-stock-field]');
+    if (!categorySelect) return;
+
+    function syncStockFields() {
+        const option = categorySelect.options[categorySelect.selectedIndex];
+        const tracked = option && option.dataset.trackStock === '1';
+        stockFields.forEach(function (field) {
+            field.classList.toggle('hidden', !tracked);
+            field.querySelectorAll('input').forEach(function (input) {
+                input.disabled = !tracked;
+            });
+        });
+    }
+
+    categorySelect.addEventListener('change', syncStockFields);
+    syncStockFields();
+});
+</script>
 
 <?php require __DIR__ . '/../layout_footer.php'; ?>

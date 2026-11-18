@@ -33,6 +33,14 @@ if ($editId > 0) {
                 <input type="text" name="description" value="<?php echo htmlspecialchars($category['description'] ?? ''); ?>" class="w-full rounded-lg border border-[#e3e3e0] bg-white px-4 py-2.5 text-sm shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] placeholder:text-[#A1A09A] focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#FDFDFC]" placeholder="Description optionnelle">
             </div>
 
+            <label class="flex cursor-pointer items-start gap-3 rounded-lg border border-[#e3e3e0] bg-[#FDFDFC] px-4 py-3 dark:border-[#3E3E3A] dark:bg-[#0a0a0a]">
+                <input type="checkbox" name="track_stock" value="1" <?php echo !empty($category['track_stock']) ? 'checked' : ''; ?> class="mt-0.5 h-4 w-4 rounded border-[#e3e3e0] text-[#8B4513] focus:ring-[#8B4513] dark:border-[#3E3E3A]">
+                <span>
+                    <span class="block text-sm font-medium text-[#1b1b18] dark:text-[#FDFDFC]">Suivi de stock</span>
+                    <span class="mt-1 block text-xs text-[#706f6c] dark:text-[#A1A09A]">Les produits de cette catégorie auront une quantité en stock, des alertes et un décrément automatique. Désactiver le suivi remet à 0 le stock de tous ses produits.</span>
+                </span>
+            </label>
+
             <div class="flex items-center gap-3 pt-2">
                 <button type="submit" class="rounded-lg bg-[#8B4513] px-5 py-2.5 text-sm font-medium text-[#FDFDFC] hover:bg-[#A0522D] transition">
                     <?php echo $category ? 'Enregistrer' : 'Creer'; ?>
