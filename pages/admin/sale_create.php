@@ -51,22 +51,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    $paymentMethod = in_array($_POST['payment_method'] ?? '', ['cash', 'mobile_money', 'credit']) ? $_POST['payment_method'] : 'cash';
+    $paymentMethod = in_array($_POST['payment_method'] ?? '', salePaymentMethods(), true)
+        ? $_POST['payment_method']
+        : 'cash';
     $pdo = $GLOBALS['pdo'];
     $pdo->beginTransaction();
     try {
         query("INSERT INTO sales (user_id, total, payment_method, created_at) VALUES (?, ?, ?, NOW())", [$_SESSION['user_id'], $total, $paymentMethod]);
         $saleId = $pdo->lastInsertId();
 
+        $stockUserId = (int)($_SESSION['user_id'] ?? 0) ?: null;
+
         foreach ($validItems as $item) {
-            query("INSERT INTO sale_items (sale_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)", [$saleId, $item['product_id'], $item['quantity'], $item['unit_price']]);
+            query("INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, pay_method) VALUES (?, ?, ?, ?, ?)", [$saleId, $item['product_id'], $item['quantity'], $item['unit_price'], $paymentMethod]);
             if ((int)($item['track_stock'] ?? 0) === 1) {
+                $currentProduct = fetchAssoc("SELECT quantity FROM products WHERE id = ? FOR UPDATE", [$item['product_id']]);
+                ensureInitialStockMovement((int)$item['product_id'], (int)($currentProduct['quantity'] ?? 0), 'Stock initial', $stockUserId);
                 query("UPDATE products SET quantity = quantity - ? WHERE id = ?", [$item['quantity'], $item['product_id']]);
+                addStockMovement((int)$item['product_id'], 'out', (int)$item['quantity'], 'sale', 'Vente admin #' . $saleId, (int)$saleId, $stockUserId);
             }
         }
 
         $pdo->commit();
-        $methodLabel = match($paymentMethod) { 'mobile_money' => 'Mobile Money', 'credit' => 'Crédit', default => 'Cash' };
+        $methodLabel = salePaymentMethodLabel($paymentMethod);
         $_SESSION['success'] = "Vente enregistrée (" . number_format($total, 0, ',', ' ') . " Ar — $methodLabel).";
         header('Location: ' . url('sales'));
         exit;
@@ -136,18 +143,22 @@ $products = fetchAllAssoc("
             </div>
             <div class="mt-4 mb-4">
                 <label class="mb-2 block text-xs font-medium text-[#706f6c] dark:text-[#A1A09A]">Mode de paiement</label>
-                <div class="grid grid-cols-3 gap-2">
+                <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     <label class="flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border-2 border-[#8B4513] bg-[#8B4513]/10 px-3 py-2 text-sm font-medium text-[#8B4513] transition">
                         <input type="radio" name="payment_method" value="cash" checked class="sr-only">
                         Cash
                     </label>
                     <label class="flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border-2 border-[#e3e3e0] bg-white px-3 py-2 text-sm font-medium text-[#706f6c] transition hover:border-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#A1A09A]">
-                        <input type="radio" name="payment_method" value="mobile_money" class="sr-only">
-                        Mobile Money
+                        <input type="radio" name="payment_method" value="prepaye" class="sr-only">
+                        Prépayé
                     </label>
-                    <label class="flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border-2 border-[#e3e3e0] bg-white px-3 py-2 text-sm font-medium text-[#706f6c] transition hover:border-[#FF750F] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#A1A09A]">
-                        <input type="radio" name="payment_method" value="credit" class="sr-only">
-                        Crédit
+                    <label class="flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border-2 border-[#e3e3e0] bg-white px-3 py-2 text-sm font-medium text-[#706f6c] transition hover:border-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#A1A09A]">
+                        <input type="radio" name="payment_method" value="trosa" class="sr-only">
+                        Trosa
+                    </label>
+                    <label class="flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border-2 border-[#e3e3e0] bg-white px-3 py-2 text-sm font-medium text-[#706f6c] transition hover:border-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#A1A09A]">
+                        <input type="radio" name="payment_method" value="mobile" class="sr-only">
+                        Mobile
                     </label>
                 </div>
             </div>
@@ -178,16 +189,17 @@ function addItem() {
         </button>
     `;
     container.appendChild(div);
-    itemIndex;
+    itemIndex++;
     div.querySelector('select').addEventListener('change', updateTotals);
     div.querySelector('input[type="number"]').addEventListener('input', updateTotals);
+    updateTotals();
 }
 
 function removeItem(btn) {
     const items = document.querySelectorAll('.sale-item');
     if (items.length <= 1) return;
     btn.closest('.sale-item').remove();
-    updateTotals;
+    updateTotals();
 }
 
 function updateTotals() {
@@ -213,7 +225,7 @@ document.querySelectorAll('input[name="payment_method"]').forEach(radio => {
             const label = r.closest('label');
             if (r.checked) {
                 label.className = label.className.replace(/border-\[#(e3e3e0|3E3E3A)\]/g, '').trim();
-                if (r.value === 'credit') {
+                if (r.value === 'trosa') {
                     label.className += ' border-[#FF750F] bg-[#FF750F]/10 text-[#FF750F]';
                 } else {
                     label.className += ' border-[#8B4513] bg-[#8B4513]/10 text-[#8B4513]';
@@ -226,7 +238,7 @@ document.querySelectorAll('input[name="payment_method"]').forEach(radio => {
             }
         });
         const btn = document.getElementById('submit-btn');
-        if (this.value === 'credit') {
+        if (this.value === 'trosa') {
             btn.textContent = 'Enregistrer le crédit';
             btn.className = btn.className.replace('bg-[#8B4513] hover:bg-[#A0522D]', 'bg-[#FF750F] hover:bg-[#e66a0d]');
         } else {

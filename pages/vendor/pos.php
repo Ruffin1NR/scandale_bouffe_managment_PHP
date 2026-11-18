@@ -1,25 +1,6 @@
 <?php
 require_once __DIR__ . '/../../config/db.php';
 
-$successMessage = '';
-if (!empty($_GET['success'])) {
-    $successMessage = $_GET['success'];
-}
-?>
-<!-- Success message container will be inserted by JavaScript -->
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    var params = new URLSearchParams(window.location.search);
-    if (params.has('success')) {
-        var successDiv = document.createElement('div');
-        successDiv.className = 'fixed top-0 left-0 right-0 bg-green-500 text-white px-4 py-3 z-50';
-        successDiv.innerHTML = '<span class="text-white">' + params.get('success') + '</span>' + 
-            '<button class="close absolute right-3 top-3 text-white" style="cursor:pointer;" onclick="this.parentElement.parentElement.style.display=\'none\'" aria-label="Fermer">×</button>';
-        document.body.insertBefore(successDiv, document.body.firstChild);
-    }
-});
-</script>
-<?php
 $currentPage = 'pos';
 $pageTitle = 'Caisse';
 
@@ -92,11 +73,6 @@ require __DIR__ . '/../layout.php';
                 >
             </div>
             <button type="submit" class="rounded-lg border border-[#e3e3e0] px-4 py-2 text-sm font-medium text-[#706f6c] transition hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:text-[#A1A09A]">Afficher</button>
-            <a href="<?php echo url('pos'); ?>?add_stock=1"
-               class="rounded-lg bg-[#22c55e] px-4 py-2 text-sm font-medium text-[#fff] hover:bg-[#16a34a] transition">
-                <svg class="h-4 w-4 fill-current text-white" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-                Ajout de stock
-            </a>
             <?php if (!$isToday): ?>
                 <a href="<?php echo url('pos'); ?>" class="rounded-lg bg-[#8B4513] px-4 py-2 text-sm font-medium text-[#FDFDFC] transition hover:bg-[#A0522D]">Aujourd'hui</a>
             <?php endif; ?>
@@ -246,12 +222,18 @@ require __DIR__ . '/../layout.php';
                     </div>
                 </div>
                 <span class="grid-add-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[#8B4513] text-[#8B4513] transition group-hover:opacity-100 <?php echo ($trackStock && $product['quantity'] <= 0) ? '' : 'opacity-0'; ?>">+</span>
-                <?php if ($trackStock === 1 && ($_SESSION['user_role'] ?? '') === 'administrateur'): ?>
-                    <button class="absolute top-1 right-1 rounded-lg bg-green-500 text-white text-xs font-bold px-2 py-1 stock-add-btn"
-                            data-product-id="<?php echo $product['id']; ?>"
-                            data-initial-stock="<?php echo $product['quantity']; ?>"
-                            title="Ajouter stock">
-                        <svg class="h-3 w-3 fill-current text-white" viewBox="0 0 24 24"><path d="M12 7v1l6.38 5.32a2 2 0 0 0 1.82 1.06L21 12l-5-5L12 7v6m0 3v6"/></svg>
+                <?php if ($trackStock && ($_SESSION['user_role'] ?? '') === 'administrateur'): ?>
+                    <button type="button"
+                            class="stock-add-btn flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#22c55e] text-white opacity-0 transition group-hover:opacity-100 hover:bg-[#16a34a] focus:opacity-100"
+                            data-product-id="<?php echo (int)$product['id']; ?>"
+                            data-product-name="<?php echo htmlspecialchars($product['name']); ?>"
+                            data-initial-stock="<?php echo (int)$product['quantity']; ?>"
+                            data-unit="<?php echo htmlspecialchars($product['unit']); ?>"
+                            title="Ajouter du stock"
+                            aria-label="Ajouter du stock pour <?php echo htmlspecialchars($product['name']); ?>">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                        </svg>
                     </button>
                 <?php endif; ?>
             </div>
@@ -719,117 +701,78 @@ document.getElementById('save-report').addEventListener('click', function() {
 });
 </script>
 
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    document.querySelectorAll('.stock-add-btn').forEach(function(button) {
-        button.addEventListener('click', function() {
-            var quantity = prompt('Entrez la quantité de stock à ajouter :', '1');
-            if (quantity === null || isNaN(quantity) || quantity <= 0) {
-                alert('Quantité invalide.');
-                return;
-            }
-            var productId = button.dataset.productId;
-            var unit = button.dataset.unit;
-            // Envoi AJAX vers le front-controller
-            fetch('<?php echo url("pos"); ?>?add_stock=1', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: 'product_id=' + productId + '&quantity=' + quantity
-            })
-            .then(function(response) {
-                return response.text();
-            })
-            .then(function(text) {
-                if (text.trim() === 'ok') {
-                    alert('Stock ajouté avec succès !');
-                    window.location.reload();
-                } else {
-                    alert('Erreur : ' + text);
-                }
-            })
-            .catch(function(err) {
-                console.error(err);
-                alert('Erreur réseau.');
-            });
-        });
-    });
-});
-// Modal pour ajouter du stock
-const stockModals = {};
-document.querySelectorAll('.stock-add-btn').forEach(button => {
-    button.addEventListener('click', function() {
-        const productId = button.dataset.productId;
-        const initialStock = button.dataset.initialStock;
-        // Créer le modal s'il n'existe pas déjà
-        if (stockModals[productId]) {
-            stockModals[productId].showModal();
-            return;
-        }
-        const modal = document.createElement('div');
-        modal.className = 'fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4';
-        modal.innerHTML = `
-            <div class="bg-white rounded-lg p-6 w-full max-w-md shadow-2xl">
-                <h3 class="text-lg font-bold text-[#1b1b18] mb-4">Ajouter stock</h3>
-                <p class="text-sm text-[#706f6c] mb-4">Produit : <span id="modal-product-name"></span></p>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium">Stock initial : <span id="modal-initial-stock"><?php echo htmlspecialchars($product['quantity']); ?></span> <?php echo htmlspecialchars($product['unit']); ?></label>
-                </div>
-                <div class="mb-4">
-                    <label class="block text-sm font-medium">Quantité à ajouter :</label>
-                    <input type="number" id="modal-quantity" min="1" value="1" class="w-full rounded-lg border border-[#e3e3e0] px-3 py-2 text-sm focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:text-[#FDFDFC]">
-                </div>
-                <div class="flex justify-end gap-2">
-                    <button type="button" id="modal-cancel" class="rounded-lg bg-gray-100 px-4 py-2 text-sm text-[#706f6c] hover:bg-gray-200 transition">Annuler</button>
-                    <button type="button" id="modal-add" class="rounded-lg bg-green-500 text-white px-4 py-2 text-sm font-medium hover:bg-green-600 transition">Ajouter</button>
-                </div>
+<div id="stock-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 p-4">
+    <div class="w-full max-w-md rounded-lg bg-white p-6 shadow-2xl dark:bg-[#161615]">
+        <h3 class="mb-4 text-lg font-bold text-[#1b1b18] dark:text-[#FDFDFC]">Ajouter du stock</h3>
+        <p class="mb-2 text-sm text-[#706f6c] dark:text-[#A1A09A]">
+            Produit : <span id="stock-modal-product" class="font-medium text-[#1b1b18] dark:text-[#FDFDFC]"></span>
+        </p>
+        <p class="mb-4 text-sm text-[#706f6c] dark:text-[#A1A09A]">
+            Stock initial : <span id="stock-modal-initial" class="font-semibold text-[#1b1b18] dark:text-[#FDFDFC]"></span>
+            <span id="stock-modal-unit"></span>
+        </p>
+        <form method="POST" action="<?php echo url('pos/add_stock'); ?>">
+            <input type="hidden" name="product_id" id="stock-modal-product-id" value="">
+            <label for="stock-modal-quantity" class="mb-1 block text-sm font-medium text-[#1b1b18] dark:text-[#FDFDFC]">Quantité à ajouter</label>
+            <input type="number" id="stock-modal-quantity" name="quantity" min="1" step="1" value="1" required
+                   class="w-full rounded-lg border border-[#e3e3e0] bg-white px-3 py-2 text-sm text-[#1b1b18] focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#0a0a0a] dark:text-[#FDFDFC]">
+            <div class="mt-5 flex justify-end gap-2">
+                <button type="button" id="stock-modal-cancel"
+                        class="rounded-lg border border-[#e3e3e0] px-4 py-2 text-sm font-medium text-[#706f6c] transition hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:text-[#A1A09A]">
+                    Annuler
+                </button>
+                <button type="submit"
+                        class="rounded-lg bg-[#22c55e] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#16a34a]">
+                    Ajouter
+                </button>
             </div>
-        `;
-        document.body.appendChild(modal);
-        stockModals[productId] = modal;
-        // Pré-remplir le nom du produit
-        document.getElementById('modal-product-name').textContent = '<?php echo htmlspecialchars($product['name']); ?>';
-        // Gestion du bouton Annuler
-        document.getElementById('modal-cancel').addEventListener('click', () => {
-            modal.remove();
-            delete stockModals[productId];
-        });
-        // Gestion du bouton Ajouter
-        document.getElementById('modal-add').addEventListener('click', () => {
-            const quantity = parseInt(document.getElementById('modal-quantity').value);
-            if (isNaN(quantity) || quantity <= 0) {
-                alert('Quantité invalide.');
-                return;
-            }
-            // Fermer le modal
-            modal.remove();
-            delete stockModals[productId];
-            // Envoi AJAX vers le front-controller
-            fetch('<?php echo url("pos"); ?>?add_stock=1', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: 'product_id=' + productId + '&quantity=' + quantity
-            })
-            .then(function(response) {
-                return response.text();
-            })
-            .then(function(text) {
-                if (text.trim() === 'ok') {
-                    alert('Stock ajouté avec succès !');
-                    window.location.reload();
-                } else {
-                    alert('Erreur : ' + text);
-                }
-            })
-            .catch(function(err) {
-                console.error(err);
-                alert('Erreur réseau.');
-            });
+        </form>
+    </div>
+</div>
+
+<script>
+(function() {
+    var modal = document.getElementById('stock-modal');
+    if (!modal) return;
+
+    var productEl = document.getElementById('stock-modal-product');
+    var initialEl = document.getElementById('stock-modal-initial');
+    var unitEl = document.getElementById('stock-modal-unit');
+    var productIdInput = document.getElementById('stock-modal-product-id');
+    var quantityInput = document.getElementById('stock-modal-quantity');
+
+    function openModal(button) {
+        productEl.textContent = button.dataset.productName || '';
+        initialEl.textContent = button.dataset.initialStock || '0';
+        unitEl.textContent = button.dataset.unit || '';
+        productIdInput.value = button.dataset.productId || '';
+        quantityInput.value = '1';
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        quantityInput.focus();
+        quantityInput.select();
+    }
+
+    function closeModal() {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+
+    document.querySelectorAll('.stock-add-btn').forEach(function(button) {
+        button.addEventListener('click', function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            openModal(button);
         });
     });
-});
+
+    document.getElementById('stock-modal-cancel').addEventListener('click', closeModal);
+    modal.addEventListener('click', function(event) {
+        if (event.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape') closeModal();
+    });
+})();
 </script>
 <?php require __DIR__ . '/../layout_footer.php'; ?>

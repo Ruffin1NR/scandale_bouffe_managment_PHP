@@ -167,15 +167,29 @@ $salesToday = fetchAssoc("SELECT COUNT(*) as nb, COALESCE(SUM(total), 0) as reve
 $salesWeek = fetchAssoc("SELECT COUNT(*) as nb, COALESCE(SUM(total), 0) as revenue FROM sales WHERE YEARWEEK(created_at, 1) = YEARWEEK(CURDATE(), 1)");
 $salesMonth = fetchAssoc("SELECT COUNT(*) as nb, COALESCE(SUM(total), 0) as revenue FROM sales WHERE YEAR(created_at) = YEAR(CURDATE()) AND MONTH(created_at) = MONTH(CURDATE())");
 
-$breakdownToday = fetchAllAssoc("SELECT payment_method, COALESCE(SUM(total), 0) as revenue FROM sales WHERE DATE(created_at) = CURDATE() GROUP BY payment_method");
-$breakdownWeek = fetchAllAssoc("SELECT payment_method, COALESCE(SUM(total), 0) as revenue FROM sales WHERE YEARWEEK(created_at, 1) = YEARWEEK(CURDATE(), 1) GROUP BY payment_method");
-$breakdownMonth = fetchAllAssoc("SELECT payment_method, COALESCE(SUM(total), 0) as revenue FROM sales WHERE YEAR(created_at) = YEAR(CURDATE()) AND MONTH(created_at) = MONTH(CURDATE()) GROUP BY payment_method");
+// Ventilation réelle par mode de paiement des lignes de vente (et non par le mode global de la vente)
+$breakdownToday = fetchAllAssoc("SELECT si.pay_method, COALESCE(SUM(si.quantity * si.unit_price), 0) as revenue FROM sale_items si JOIN sales s ON s.id = si.sale_id WHERE DATE(s.created_at) = CURDATE() GROUP BY si.pay_method");
+$breakdownWeek = fetchAllAssoc("SELECT si.pay_method, COALESCE(SUM(si.quantity * si.unit_price), 0) as revenue FROM sale_items si JOIN sales s ON s.id = si.sale_id WHERE YEARWEEK(s.created_at, 1) = YEARWEEK(CURDATE(), 1) GROUP BY si.pay_method");
+$breakdownMonth = fetchAllAssoc("SELECT si.pay_method, COALESCE(SUM(si.quantity * si.unit_price), 0) as revenue FROM sale_items si JOIN sales s ON s.id = si.sale_id WHERE YEAR(s.created_at) = YEAR(CURDATE()) AND MONTH(s.created_at) = MONTH(CURDATE()) GROUP BY si.pay_method");
 
 function getPaymentBreakdown($data) {
     $map = [];
-    foreach ($data as $row) { $map[$row['payment_method']] = (float)$row['revenue']; }
+    foreach ($data as $row) { $map[$row['pay_method']] = (float)$row['revenue']; }
     return $map;
 }
+
+function renderPaymentBreakdown(array $breakdown): string {
+    $html = '';
+    foreach (salePaymentMethods() as $method) {
+        $amount = (float)($breakdown[$method] ?? 0);
+        $html .= '<span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium '
+            . salePaymentMethodBadgeClass($method) . '">'
+            . salePaymentMethodLabel($method) . ' '
+            . number_format($amount, 0, ',', ' ') . ' Ar</span>';
+    }
+    return $html;
+}
+
 $bt = getPaymentBreakdown($breakdownToday);
 $bw = getPaymentBreakdown($breakdownWeek);
 $bm = getPaymentBreakdown($breakdownMonth);
@@ -187,9 +201,7 @@ $bm = getPaymentBreakdown($breakdownMonth);
         <p class="text-2xl font-bold text-[#8B4513]"><?php echo number_format((float)$salesToday['revenue'], 0, ',', ' ') . ' Ar'; ?></p>
         <p class="text-sm text-[#706f6c] dark:text-[#A1A09A] mt-1"><?php echo $salesToday['nb']; ?> vente(s)</p>
         <div class="mt-3 flex flex-wrap gap-1.5">
-            <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">Cash <?php echo number_format($bt['cash'] ?? 0, 0, ',', ' '); ?> Ar</span>
-            <span class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">Mobile <?php echo number_format($bt['mobile_money'] ?? 0, 0, ',', ' '); ?> Ar</span>
-            <span class="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">Crédit <?php echo number_format($bt['credit'] ?? 0, 0, ',', ' '); ?> Ar</span>
+            <?= renderPaymentBreakdown($bt) ?>
         </div>
     </a>
     <a href="<?php echo url('sales?from=' . date('Y-m-d', strtotime('monday this week')) . '&to=' . date('Y-m-d')); ?>" class="rounded-lg bg-white p-5 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615] transition hover:border-[#8B4513] cursor-pointer group">
@@ -197,9 +209,7 @@ $bm = getPaymentBreakdown($breakdownMonth);
         <p class="text-2xl font-bold text-[#8B4513]"><?php echo number_format((float)$salesWeek['revenue'], 0, ',', ' ') . ' Ar'; ?></p>
         <p class="text-sm text-[#706f6c] dark:text-[#A1A09A] mt-1"><?php echo $salesWeek['nb']; ?> vente(s)</p>
         <div class="mt-3 flex flex-wrap gap-1.5">
-            <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">Cash <?php echo number_format($bw['cash'] ?? 0, 0, ',', ' '); ?> Ar</span>
-            <span class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">Mobile <?php echo number_format($bw['mobile_money'] ?? 0, 0, ',', ' '); ?> Ar</span>
-            <span class="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">Crédit <?php echo number_format($bw['credit'] ?? 0, 0, ',', ' '); ?> Ar</span>
+            <?= renderPaymentBreakdown($bw) ?>
         </div>
     </a>
     <a href="<?php echo url('sales?from=' . date('Y-m-01') . '&to=' . date('Y-m-d')); ?>" class="rounded-lg bg-white p-5 shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615] transition hover:border-[#8B4513] cursor-pointer group">
@@ -207,9 +217,7 @@ $bm = getPaymentBreakdown($breakdownMonth);
         <p class="text-2xl font-bold text-[#8B4513]"><?php echo number_format((float)$salesMonth['revenue'], 0, ',', ' ') . ' Ar'; ?></p>
         <p class="text-sm text-[#706f6c] dark:text-[#A1A09A] mt-1"><?php echo $salesMonth['nb']; ?> vente(s)</p>
         <div class="mt-3 flex flex-wrap gap-1.5">
-            <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">Cash <?php echo number_format($bm['cash'] ?? 0, 0, ',', ' '); ?> Ar</span>
-            <span class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">Mobile <?php echo number_format($bm['mobile_money'] ?? 0, 0, ',', ' '); ?> Ar</span>
-            <span class="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">Crédit <?php echo number_format($bm['credit'] ?? 0, 0, ',', ' '); ?> Ar</span>
+            <?= renderPaymentBreakdown($bm) ?>
         </div>
     </a>
 </div>

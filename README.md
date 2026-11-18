@@ -42,7 +42,9 @@ cd scandale_bouffe_managment_PHP
 2. Créez une base de données nommée `scandale_bouffe`
 3. Importez le fichier SQL fourni dans le projet
 4. Pour une base existante sans colonne `track_stock`, exécutez `database/migrate_track_stock.sql`.
-5. Vérifiez les paramètres de connexion dans `config/db.php` :
+5. Pour une base existante sans table `stock_movements`, exécutez `database/migrate_stock_movements.sql`.
+6. Pour harmoniser les modes de paiement des ventes existantes, exécutez `database/migrate_sale_payment_methods.sql`.
+7. Vérifiez les paramètres de connexion dans `config/db.php` :
 
 ```php
 $dbHost = 'localhost';
@@ -50,6 +52,10 @@ $dbName = 'scandale_bouffe';
 $dbUser = 'root';
 $dbPass = '';
 ```
+
+> **Remise à zéro de l'activité** : `database/reset_activity.sql` supprime toutes les ventes,
+> les rapports journaliers, les versements et les mouvements de stock, puis remet les produits
+> suivis à leur stock initial. Ce script est **destructif** : sauvegardez la base avant de l'exécuter.
 
 ### 3. Compiler Tailwind CSS
 

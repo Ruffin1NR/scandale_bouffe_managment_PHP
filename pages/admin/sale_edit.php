@@ -48,7 +48,6 @@ $dbItems = fetchAllAssoc("SELECT * FROM sale_items WHERE sale_id = ? ORDER BY id
 $items = $dbItems;
 
 $createdAtValue = date('Y-m-d\TH:i', strtotime($sale['created_at']));
-$paymentMethodValue = $sale['payment_method'] ?? 'cash';
 $formError = '';
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
@@ -72,10 +71,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         $formError = "La date de la vente ne peut pas être dans le futur.";
     }
 
-    $paymentMethodValue = in_array($_POST['payment_method'] ?? '', ['cash', 'mobile_money', 'credit'], true)
-        ? $_POST['payment_method']
-        : 'cash';
-
     $rawItems = $_POST['items'] ?? [];
     if (!is_array($rawItems)) {
         $rawItems = [];
@@ -90,7 +85,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         $productId = (int)($row['product_id'] ?? 0);
         $quantity = (int)($row['quantity'] ?? 0);
         $unitPrice = (float)($row['unit_price'] ?? 0);
-        $payMethod = in_array($row['pay_method'] ?? '', ['cash', 'prepaye', 'trosa', 'mobile'], true)
+        $payMethod = in_array($row['pay_method'] ?? '', salePaymentMethods(), true)
             ? $row['pay_method']
             : 'cash';
 
@@ -111,6 +106,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     }
 
     $items = $postedItems;
+    $salePaymentMethod = deriveSalePaymentMethod(array_column($postedItems, 'pay_method'));
     if ($formError === '' && empty($postedItems)) {
         $formError = "La vente doit contenir au moins un article valide.";
     }
@@ -167,13 +163,21 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 }
             }
 
+            $stockUserId = (int)($_SESSION['user_id'] ?? 0) ?: null;
+
             foreach ($allProductIds as $productId) {
                 if ((int)($lockedProducts[$productId]['track_stock'] ?? 0) !== 1) {
                     continue;
                 }
                 $delta = (int)($oldQtyByProduct[$productId] ?? 0) - (int)($newQtyByProduct[$productId] ?? 0);
                 if ($delta !== 0) {
+                    ensureInitialStockMovement($productId, (int)($lockedProducts[$productId]['quantity'] ?? 0), 'Stock initial', $stockUserId);
                     query("UPDATE products SET quantity = quantity + ? WHERE id = ?", [$delta, $productId]);
+                    if ($delta > 0) {
+                        addStockMovement($productId, 'in', $delta, 'sale_edit', 'Modification vente #' . $saleId, $saleId, $stockUserId);
+                    } else {
+                        addStockMovement($productId, 'out', abs($delta), 'sale_edit', 'Modification vente #' . $saleId, $saleId, $stockUserId);
+                    }
                 }
             }
 
@@ -191,7 +195,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
             query(
                 "UPDATE sales SET total = ?, payment_method = ?, created_at = ?, updated_at = NOW() WHERE id = ?",
-                [$newTotal, $paymentMethodValue, $dt->format('Y-m-d H:i:s'), $saleId]
+                [$newTotal, $salePaymentMethod, $dt->format('Y-m-d H:i:s'), $saleId]
             );
 
             $pdo->commit();
@@ -209,7 +213,19 @@ if (empty($items)) {
     $items = [['product_id' => 0, 'quantity' => 1, 'unit_price' => 0, 'pay_method' => 'cash']];
 }
 
-$nextItemIndex = count($items);
+$summaryMethods = [];
+foreach ($items as $summaryItem) {
+    $summaryMethod = $summaryItem['pay_method'] ?? 'cash';
+    if (in_array($summaryMethod, salePaymentMethods(), true)) {
+        $summaryMethods[$summaryMethod] = true;
+    }
+}
+$summaryMethods = array_values(array_intersect(salePaymentMethods(), array_keys($summaryMethods)));
+
+$nextItemIndex = 0;
+foreach (array_keys($items) as $itemKey) {
+    $nextItemIndex = max($nextItemIndex, (int)$itemKey + 1);
+}
 $productOptions = '';
 foreach ($products as $product) {
     $productOptions .= '<option value="' . (int)$product['id'] . '" data-price="' . (float)$product['price'] . '">'
@@ -260,16 +276,22 @@ foreach ($products as $product) {
                     >
                 </div>
                 <div>
-                    <label for="payment_method" class="mb-1 block text-xs font-medium text-[#706f6c] dark:text-[#A1A09A]">Mode de paiement</label>
-                    <select
-                        id="payment_method"
-                        name="payment_method"
-                        class="w-full rounded-lg border border-[#e3e3e0] bg-white px-3 py-2 text-sm text-[#1b1b18] shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#FDFDFC]"
-                    >
-                        <option value="cash" <?= $paymentMethodValue === 'cash' ? 'selected' : '' ?>>Cash</option>
-                        <option value="mobile_money" <?= $paymentMethodValue === 'mobile_money' ? 'selected' : '' ?>>Mobile Money</option>
-                        <option value="credit" <?= $paymentMethodValue === 'credit' ? 'selected' : '' ?>>Crédit</option>
-                    </select>
+                    <span class="mb-1 block text-xs font-medium text-[#706f6c] dark:text-[#A1A09A]">Modes de paiement</span>
+                    <div id="payment-summary" class="flex min-h-[42px] flex-wrap items-center gap-1.5 rounded-lg border border-[#e3e3e0] bg-[#FDFDFC] px-3 py-2 dark:border-[#3E3E3A] dark:bg-[#0a0a0a]">
+                        <?php if (empty($summaryMethods)): ?>
+                            <span class="text-sm text-[#A1A09A]">—</span>
+                        <?php else: ?>
+                            <?php foreach ($summaryMethods as $summaryMethod): ?>
+                                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium <?= salePaymentMethodBadgeClass($summaryMethod) ?>">
+                                    <?= salePaymentMethodLabel($summaryMethod) ?>
+                                </span>
+                            <?php endforeach; ?>
+                            <?php if (count($summaryMethods) > 1): ?>
+                                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium <?= salePaymentMethodBadgeClass('mixed') ?>">Mixte</span>
+                            <?php endif; ?>
+                        <?php endif; ?>
+                    </div>
+                    <p class="mt-1 text-[11px] text-[#706f6c] dark:text-[#A1A09A]">Définis pour chaque article ci-dessous.</p>
                 </div>
             </div>
         </div>
@@ -340,7 +362,26 @@ foreach ($products as $product) {
 
                         <span class="item-total w-28 text-right text-sm font-semibold text-[#8B4513]">0 Ar</span>
 
-                        <input type="hidden" name="items[<?= (int)$index ?>][pay_method]" value="<?= htmlspecialchars($item['pay_method'] ?? 'cash') ?>">
+                        <div class="flex items-center gap-1">
+                            <label class="sr-only" for="pay-<?= (int)$index ?>">Mode de paiement</label>
+                            <?php
+                            $itemPayMethod = $item['pay_method'] ?? 'cash';
+                            if (!in_array($itemPayMethod, salePaymentMethods(), true)) {
+                                $itemPayMethod = 'cash';
+                            }
+                            ?>
+                            <select
+                                id="pay-<?= (int)$index ?>"
+                                name="items[<?= (int)$index ?>][pay_method]"
+                                class="pay-method-select w-28 rounded-lg border border-[#e3e3e0] bg-white px-2 py-2 text-sm text-[#1b1b18] shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#FDFDFC]"
+                            >
+                                <?php foreach (salePaymentMethods() as $payMethodOption): ?>
+                                    <option value="<?= $payMethodOption ?>" <?= $itemPayMethod === $payMethodOption ? 'selected' : '' ?>>
+                                        <?= salePaymentMethodLabel($payMethodOption) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
 
                         <button type="button" onclick="removeItem(this)" class="rounded-lg p-1.5 text-[#706f6c] transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20" title="Retirer">
                             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
@@ -392,6 +433,45 @@ function updateTotals() {
     document.getElementById('grand-total').textContent = formatAmount(grandTotal);
 }
 
+function updatePaymentSummary() {
+    const container = document.getElementById('payment-summary');
+    if (!container) return;
+
+    const labels = { cash: 'Cash', prepaye: 'Prépayé', trosa: 'Trosa', mobile: 'Mobile' };
+    const classes = {
+        cash: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+        prepaye: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+        trosa: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+        mobile: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+        mixed: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+    };
+
+    const methods = [];
+    document.querySelectorAll('.pay-method-select').forEach(function(select) {
+        if (select.value && !methods.includes(select.value)) {
+            methods.push(select.value);
+        }
+    });
+
+    if (methods.length === 0) {
+        container.innerHTML = '<span class="text-sm text-[#A1A09A]">—</span>';
+        return;
+    }
+
+    container.innerHTML = methods.map(function(method) {
+        const label = labels[method] || method;
+        const badgeClass = classes[method] || classes.cash;
+        return '<span class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ' + badgeClass + '">' + label + '</span>';
+    }).join('');
+
+    if (methods.length > 1) {
+        container.insertAdjacentHTML(
+            'beforeend',
+            '<span class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ' + classes.mixed + '">Mixte</span>'
+        );
+    }
+}
+
 function onProductChange(select) {
     const option = select.options[select.selectedIndex];
     const price = parseFloat(option.dataset.price) || 0;
@@ -421,13 +501,22 @@ function addItem() {
             <span class="text-xs text-[#706f6c] dark:text-[#A1A09A]">Ar</span>
         </div>
         <span class="item-total w-28 text-right text-sm font-semibold text-[#8B4513]">0 Ar</span>
-        <input type="hidden" name="items[${index}][pay_method]" value="cash">
+        <div class="flex items-center gap-1">
+            <label class="sr-only" for="pay-${index}">Mode de paiement</label>
+            <select id="pay-${index}" name="items[${index}][pay_method]" class="pay-method-select w-28 rounded-lg border border-[#e3e3e0] bg-white px-2 py-2 text-sm text-[#1b1b18] shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#FDFDFC]">
+                <option value="cash">Cash</option>
+                <option value="prepaye">Prépayé</option>
+                <option value="trosa">Trosa</option>
+                <option value="mobile">Mobile</option>
+            </select>
+        </div>
         <button type="button" onclick="removeItem(this)" class="rounded-lg p-1.5 text-[#706f6c] transition hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20" title="Retirer">
             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
     `;
     container.appendChild(div);
     updateTotals();
+    updatePaymentSummary();
 }
 
 function removeItem(button) {
@@ -435,11 +524,15 @@ function removeItem(button) {
     if (rows.length <= 1) return;
     button.closest('.sale-item').remove();
     updateTotals();
+    updatePaymentSummary();
 }
 
 document.addEventListener('change', function(event) {
     if (event.target.matches('.product-select')) {
         onProductChange(event.target);
+    }
+    if (event.target.matches('.pay-method-select')) {
+        updatePaymentSummary();
     }
 });
 
@@ -450,6 +543,7 @@ document.addEventListener('input', function(event) {
 });
 
 updateTotals();
+updatePaymentSummary();
 </script>
 
 <?php require __DIR__ . '/../layout_footer.php'; ?>

@@ -12,7 +12,11 @@ $dateFrom = $_GET['from'] ?? '';
 $dateTo = $_GET['to'] ?? '';
 $categoryFilter = (int) ($_GET['category'] ?? 0);
 $productFilter = (int) ($_GET['product'] ?? 0);
-$paymentFilter = $_GET['payment'] ?? '';
+$paymentFilter = (string) ($_GET['payment'] ?? '');
+$validPaymentFilters = array_merge(salePaymentMethods(), ['mixed']);
+if ($paymentFilter !== '' && !in_array($paymentFilter, $validPaymentFilters, true)) {
+    $paymentFilter = '';
+}
 $where = "WHERE 1=1";
 $params = [];
 if ($dateFrom !== '') {
@@ -31,12 +35,12 @@ if ($categoryFilter > 0) {
     $where .= " AND p.category_id = ?";
     $params[] = $categoryFilter;
 }
-if ($paymentFilter !== '' && in_array($paymentFilter, ['cash', 'mobile_money', 'credit'])) {
-    $where .= " AND s.payment_method = ?";
+if ($paymentFilter === 'mixed') {
+    $where .= " AND (SELECT COUNT(DISTINCT si_pay.pay_method) FROM sale_items si_pay WHERE si_pay.sale_id = s.id) > 1";
+} elseif ($paymentFilter !== '') {
+    $where .= " AND EXISTS (SELECT 1 FROM sale_items si_pay WHERE si_pay.sale_id = s.id AND si_pay.pay_method = ?)";
     $params[] = $paymentFilter;
 }
-
-$kpi = fetchAssoc("SELECT COUNT(DISTINCT s.id) as total_sales, COALESCE(SUM(si.quantity * si.unit_price), 0) as total_revenue, COALESCE(AVG(s.total), 0) as avg_basket, COALESCE(SUM(si.quantity), 0) as items_sold FROM sales s JOIN sale_items si ON si.sale_id = s.id LEFT JOIN products p ON si.product_id = p.id $where", $params);
 
 if ($dateFrom !== '' || $dateTo !== '') {
     $kpiWhere = "WHERE 1=1";
@@ -191,21 +195,22 @@ $savedReport = fetchAssoc("SELECT prepaye, trosa, paiement, nofy FROM daily_repo
                     </select>
                 </div>
                 <div>
-                    <label class="mb-1 block text-xs font-medium text-[#706f6c] dark:text-[#A1A09A]">Paiement</label>
-                    <select name="payment"
+                    <label for="filter-payment" class="mb-1 block text-xs font-medium text-[#706f6c] dark:text-[#A1A09A]">Mode de paiement</label>
+                    <select id="filter-payment" name="payment"
                         class="w-full rounded-lg border border-[#e3e3e0] bg-white px-3 py-2 text-sm text-[#1b1b18] shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] placeholder:text-[#A1A09A] focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#FDFDFC]">
                         <option value="">Tous</option>
                         <option value="cash" <?= $paymentFilter === 'cash' ? 'selected' : '' ?>>Cash</option>
-                        <option value="mobile_money" <?= $paymentFilter === 'mobile_money' ? 'selected' : '' ?>>Mobile
-                            Money</option>
-                        <option value="credit" <?= $paymentFilter === 'credit' ? 'selected' : '' ?>>Crédit</option>
+                        <option value="prepaye" <?= $paymentFilter === 'prepaye' ? 'selected' : '' ?>>Prépayé</option>
+                        <option value="trosa" <?= $paymentFilter === 'trosa' ? 'selected' : '' ?>>Trosa</option>
+                        <option value="mobile" <?= $paymentFilter === 'mobile' ? 'selected' : '' ?>>Mobile</option>
+                        <option value="mixed" <?= $paymentFilter === 'mixed' ? 'selected' : '' ?>>Mixte</option>
                     </select>
                 </div>
                 <div class="flex items-end gap-2">
                     <button type="submit"
                         class="flex-1 rounded-lg bg-[#8B4513] px-4 py-2 text-sm font-medium text-[#FDFDFC] transition hover:bg-[#A0522D]">Filtrer</button>
                     <?php if ($dateFrom || $dateTo || $categoryFilter || $productFilter || $paymentFilter): ?>
-                        <a href="sales.php"
+                        <a href="<?= url('sales') ?>"
                             class="rounded-lg border border-[#e3e3e0] px-4 py-2 text-sm font-medium text-[#706f6c] transition hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:text-[#A1A09A]">Réinitialiser</a>
                     <?php endif; ?>
                 </div>
@@ -509,7 +514,7 @@ $savedReport = fetchAssoc("SELECT prepaye, trosa, paiement, nofy FROM daily_repo
                                     <th class="py-2 pr-4">N°</th>
                                     <th class="px-4 py-2">Date</th>
                                     <th class="px-4 py-2">Vendeur</th>
-                                    <th class="px-4 py-2 text-center">Paiement</th>
+                                    <th class="px-4 py-2 text-center">Modes de paiement</th>
                                     <th class="px-4 py-2">Articles</th>
                                     <th class="py-2 pl-4 text-right">Total</th>
                                     <th class="py-2 pl-4 text-right">Actions</th>
@@ -520,12 +525,16 @@ $savedReport = fetchAssoc("SELECT prepaye, trosa, paiement, nofy FROM daily_repo
                                     <?php
                                     $items = $saleItems[$sale['id']] ?? [];
                                     $itemCount = 0;
+                                    $saleMethods = [];
                                     foreach ($items as $it) {
                                         $itemCount += (int) $it['quantity'];
+                                        $itMethod = $it['pay_method'] ?? 'cash';
+                                        if (!in_array($itMethod, salePaymentMethods(), true)) {
+                                            $itMethod = 'cash';
+                                        }
+                                        $saleMethods[$itMethod] = true;
                                     }
-                                    $pm = $sale['payment_method'] ?? 'cash';
-                                    $pmClass = match ($pm) { 'mobile_money' => 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400', 'credit' => 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400', default => 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'};
-                                    $pmLabel = match ($pm) { 'mobile_money' => 'Mobile', 'credit' => 'Crédit', default => 'Cash'};
+                                    $saleMethods = array_values(array_intersect(salePaymentMethods(), array_keys($saleMethods)));
                                     $saleLabel = '#' . $sale['id'] . ' — ' . number_format((float) $sale['total'], 0, ',', ' ') . ' Ar';
                                     ?>
                                     <tr class="cursor-pointer transition hover:bg-[#FDFDFC] dark:hover:bg-[#1a1a1a]"
@@ -534,7 +543,17 @@ $savedReport = fetchAssoc("SELECT prepaye, trosa, paiement, nofy FROM daily_repo
                                         <td class="px-4 py-3 text-sm text-[#706f6c] dark:text-[#A1A09A]"><?= date('d/m/Y H:i', strtotime($sale['created_at'])) ?></td>
                                         <td class="px-4 py-3 text-sm text-[#1b1b18] dark:text-[#FDFDFC]"><?= htmlspecialchars($sale['vendor_name'] ?? '—') ?></td>
                                         <td class="px-4 py-3 text-center">
-                                            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium <?= $pmClass ?>"><?= $pmLabel ?></span>
+                                            <?php if (empty($saleMethods)): ?>
+                                                <span class="text-xs text-[#A1A09A]">—</span>
+                                            <?php else: ?>
+                                                <div class="flex flex-wrap items-center justify-center gap-1">
+                                                    <?php foreach ($saleMethods as $saleMethod): ?>
+                                                        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium <?= salePaymentMethodBadgeClass($saleMethod) ?>">
+                                                            <?= salePaymentMethodLabel($saleMethod) ?>
+                                                        </span>
+                                                    <?php endforeach; ?>
+                                                </div>
+                                            <?php endif; ?>
                                         </td>
                                         <td class="px-4 py-3 text-sm text-[#706f6c] dark:text-[#A1A09A]"><?= $itemCount ?> article(s)</td>
                                         <td class="py-3 pl-4 text-right text-sm font-semibold text-[#1b1b18] dark:text-[#FDFDFC]"><?= number_format((float) $sale['total'], 0, ',', ' ') ?> Ar</td>
@@ -561,6 +580,13 @@ $savedReport = fetchAssoc("SELECT prepaye, trosa, paiement, nofy FROM daily_repo
                                                         <span class="text-[#1b1b18] dark:text-[#FDFDFC]">
                                                             <?= htmlspecialchars($item['product_name'] ?? 'Produit supprimé') ?>
                                                             <span class="ms-2 text-xs text-[#706f6c] dark:text-[#A1A09A]"><?= htmlspecialchars($item['category_name'] ?? '—') ?></span>
+                                                            <?php
+                                                            $linePayMethod = $item['pay_method'] ?? 'cash';
+                                                            if (!in_array($linePayMethod, salePaymentMethods(), true)) {
+                                                                $linePayMethod = 'cash';
+                                                            }
+                                                            ?>
+                                                            <span class="ms-2 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium <?= salePaymentMethodBadgeClass($linePayMethod) ?>"><?= salePaymentMethodLabel($linePayMethod) ?></span>
                                                         </span>
                                                         <span class="text-[#706f6c] dark:text-[#A1A09A]">
                                                             <?= (int) $item['quantity'] ?> &#215; <?= number_format((float) $item['unit_price'], 0, ',', ' ') ?> Ar
