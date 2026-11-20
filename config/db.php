@@ -115,6 +115,48 @@ function deriveSalePaymentMethod(array $payMethods): string {
     return 'mixed';
 }
 
+// ==========================================
+// MOUVEMENTS DE CAISSE (versements, relais, dépenses)
+// ==========================================
+
+/**
+ * Configuration des saisies de caisse : table, colonne de date et libellé.
+ * Les clés servent aussi de valeurs dans les formulaires (champ "type").
+ */
+function cashEntryTypes(): array {
+    return [
+        'versement' => [
+            'table' => 'daily_deposits',
+            'date_column' => 'deposit_date',
+            'label' => 'Versement',
+        ],
+        'relais' => [
+            'table' => 'daily_relais',
+            'date_column' => 'relais_date',
+            'label' => 'Relais',
+        ],
+        'depense' => [
+            'table' => 'daily_paiements',
+            'date_column' => 'paiement_date',
+            'label' => 'Dépense',
+        ],
+    ];
+}
+
+/** Libellé lisible d'un mouvement de caisse. */
+function cashEntryTypeLabel(string $type): string {
+    return cashEntryTypes()[$type]['label'] ?? 'Mouvement';
+}
+
+/** Classes Tailwind du badge d'un mouvement de caisse. */
+function cashEntryTypeBadgeClass(string $type): string {
+    return match ($type) {
+        'versement' => 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+        'relais' => 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+        'depense' => 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+        default => 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
+    };
+}
 
 try {
     // Création de la connexion PDO

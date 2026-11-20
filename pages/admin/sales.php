@@ -147,6 +147,39 @@ if ($paymentFilter)
 
 $reportDate = $dateFrom ?: date('Y-m-d');
 $savedReport = fetchAssoc("SELECT prepaye, trosa, paiement, nofy FROM daily_reports WHERE user_id = ? AND report_date = ?", [$_SESSION['user_id'], $reportDate]);
+
+// Historique des mouvements de caisse (mêmes filtres de date et même utilisateur que les KPI)
+$cashEntrySources = [
+    'versement' => ['where' => $depositWhere, 'params' => $depositParams],
+    'relais' => ['where' => $relaisWhere, 'params' => $relaisParams],
+    'depense' => ['where' => $paiementWhere, 'params' => $paiementParams],
+];
+$cashEntries = [];
+foreach (cashEntryTypes() as $cashEntryType => $cashEntryConfig) {
+    $cashEntryWhere = $cashEntrySources[$cashEntryType]['where'];
+    $cashEntryParams = $cashEntrySources[$cashEntryType]['params'];
+    $cashEntryRows = fetchAllAssoc(
+        "SELECT id, amount, {$cashEntryConfig['date_column']} AS entry_date, created_at
+         FROM {$cashEntryConfig['table']}
+         {$cashEntryWhere}
+         ORDER BY {$cashEntryConfig['date_column']} DESC, id DESC",
+        $cashEntryParams
+    );
+    foreach ($cashEntryRows as $cashEntryRow) {
+        $cashEntryRow['type'] = $cashEntryType;
+        $cashEntries[] = $cashEntryRow;
+    }
+}
+usort($cashEntries, function ($a, $b) {
+    $dateCompare = strcmp((string)$b['entry_date'], (string)$a['entry_date']);
+    if ($dateCompare !== 0) {
+        return $dateCompare;
+    }
+    return strcmp((string)$b['created_at'], (string)$a['created_at']);
+});
+$cashEntryTotal = count($cashEntries);
+$cashEntries = array_slice($cashEntries, 0, 50);
+$currentUrl = 'sales' . ($qs !== '' ? '?' . ltrim($qs, '&') : '');
 ?>
 
 <div class="py-12">
@@ -631,20 +664,157 @@ $savedReport = fetchAssoc("SELECT prepaye, trosa, paiement, nofy FROM daily_repo
             <?php endif; ?>
         </div>
 
+        <div class="mt-6 rounded-lg bg-white shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] dark:bg-[#161615]">
+            <div class="flex flex-wrap items-center justify-between gap-3 p-6 pb-0">
+                <div>
+                    <h3 class="text-lg font-semibold text-[#1b1b18] dark:text-[#FDFDFC]">Versements, relais et dépenses</h3>
+                    <p class="mt-1 text-xs text-[#706f6c] dark:text-[#A1A09A]">Vos saisies de caisse sur la période.</p>
+                </div>
+                <span class="text-xs text-[#706f6c] dark:text-[#A1A09A]">
+                    <?= $cashEntryTotal ?> mouvement(s)<?= $cashEntryTotal > 50 ? ' — 50 derniers affichés' : '' ?>
+                </span>
+            </div>
+            <?php if (empty($cashEntries)): ?>
+                <p class="p-6 text-sm text-[#706f6c] dark:text-[#A1A09A]">Aucun versement, relais ou dépense sur la période.</p>
+            <?php else: ?>
+                <div class="p-6">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-[#e3e3e0] dark:divide-[#3E3E3A]">
+                            <thead>
+                                <tr class="text-left text-xs font-medium uppercase tracking-wider text-[#706f6c] dark:text-[#A1A09A]">
+                                    <th class="py-2 pr-4">Type</th>
+                                    <th class="px-4 py-2">Date</th>
+                                    <th class="px-4 py-2">Saisi le</th>
+                                    <th class="py-2 pl-4 text-right">Montant</th>
+                                    <th class="py-2 pl-4 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-[#e3e3e0] dark:divide-[#3E3E3A]">
+                                <?php foreach ($cashEntries as $cashEntry): ?>
+                                    <?php
+                                    $cashEntryType = $cashEntry['type'];
+                                    $cashEntryLabel = cashEntryTypeLabel($cashEntryType);
+                                    $cashEntryAmountLabel = number_format((float) $cashEntry['amount'], 0, ',', ' ') . ' Ar';
+                                    $cashEntryArticle = $cashEntryType === 'depense' ? 'la ' : 'le ';
+                                    $cashEntryDescription = $cashEntryArticle . mb_strtolower($cashEntryLabel) . ' de ' . $cashEntryAmountLabel;
+                                    ?>
+                                    <tr class="transition hover:bg-[#FDFDFC] dark:hover:bg-[#1a1a1a]">
+                                        <td class="py-3 pr-4">
+                                            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium <?= cashEntryTypeBadgeClass($cashEntryType) ?>">
+                                                <?= $cashEntryLabel ?>
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-3 text-sm text-[#706f6c] dark:text-[#A1A09A]">
+                                            <?= date('d/m/Y', strtotime($cashEntry['entry_date'])) ?>
+                                        </td>
+                                        <td class="px-4 py-3 text-sm text-[#706f6c] dark:text-[#A1A09A]">
+                                            <?= date('d/m/Y H:i', strtotime($cashEntry['created_at'])) ?>
+                                        </td>
+                                        <td class="py-3 pl-4 text-right text-sm font-semibold text-[#1b1b18] dark:text-[#FDFDFC]">
+                                            <?= $cashEntryAmountLabel ?>
+                                        </td>
+                                        <td class="py-3 pl-4 text-right">
+                                            <div class="flex items-center justify-end gap-1">
+                                                <button type="button"
+                                                        onclick="openEntryEdit(<?= htmlspecialchars(json_encode($cashEntryType), ENT_QUOTES) ?>, <?= (int) $cashEntry['id'] ?>, <?= htmlspecialchars(json_encode($cashEntry['entry_date']), ENT_QUOTES) ?>, <?= htmlspecialchars(json_encode((float) $cashEntry['amount']), ENT_QUOTES) ?>, <?= htmlspecialchars(json_encode($cashEntryLabel), ENT_QUOTES) ?>)"
+                                                        class="rounded-lg border border-[#e3e3e0] px-2.5 py-1.5 text-xs font-medium text-[#706f6c] transition hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:text-[#A1A09A]">
+                                                    Modifier
+                                                </button>
+                                                <button type="button"
+                                                        onclick="confirmDeleteEntry(<?= htmlspecialchars(json_encode($cashEntryType), ENT_QUOTES) ?>, <?= (int) $cashEntry['id'] ?>, <?= htmlspecialchars(json_encode($cashEntryDescription), ENT_QUOTES) ?>)"
+                                                        class="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-600 transition hover:border-red-600 hover:bg-red-50 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-900/20">
+                                                    Supprimer
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            <?php endif; ?>
+        </div>
+
         <form id="delete-sale-form" method="POST" action="<?= url('sales/delete') ?>" class="hidden">
             <input type="hidden" name="id" id="delete-sale-id" value="">
         </form>
+
+        <form id="delete-entry-form" method="POST" action="<?= url('sales/entry-delete') ?>" class="hidden">
+            <input type="hidden" name="type" id="delete-entry-type" value="">
+            <input type="hidden" name="id" id="delete-entry-id" value="">
+            <input type="hidden" name="return" value="<?= htmlspecialchars($currentUrl) ?>">
+        </form>
+
+        <div id="entry-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div class="absolute inset-0 bg-black/50" onclick="closeEntryModal()"></div>
+            <div class="relative w-full max-w-md rounded-lg border border-[#e3e3e0] bg-[#FDFDFC] p-6 shadow-xl dark:border-[#3E3E3A] dark:bg-[#0a0a0a]" style="box-shadow: inset 0px 0px 0px 1px rgba(26,26,0,0.16), 0 25px 50px -12px rgba(0,0,0,0.25);">
+                <div class="flex items-start justify-between gap-4">
+                    <h3 id="entry-modal-title" class="text-lg font-semibold text-[#1b1b18] dark:text-[#FDFDFC]">Modifier le mouvement</h3>
+                    <button type="button" class="text-[#A1A09A] transition hover:text-[#1b1b18] dark:hover:text-[#FDFDFC]" onclick="closeEntryModal()">
+                        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+                <form method="POST" action="<?= url('sales/entry-update') ?>" class="mt-4 space-y-4">
+                    <input type="hidden" name="type" id="entry-type" value="">
+                    <input type="hidden" name="id" id="entry-id" value="">
+                    <input type="hidden" name="return" value="<?= htmlspecialchars($currentUrl) ?>">
+                    <div>
+                        <label for="entry-date" class="mb-1 block text-xs font-medium text-[#706f6c] dark:text-[#A1A09A]">Date</label>
+                        <input type="date" id="entry-date" name="date" required max="<?= date('Y-m-d') ?>"
+                            class="w-full rounded-lg border border-[#e3e3e0] bg-white px-3 py-2 text-sm text-[#1b1b18] shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#FDFDFC]">
+                    </div>
+                    <div>
+                        <label for="entry-amount" class="mb-1 block text-xs font-medium text-[#706f6c] dark:text-[#A1A09A]">Montant (Ar)</label>
+                        <input type="number" id="entry-amount" name="amount" min="1" step="0.01" required
+                            class="w-full rounded-lg border border-[#e3e3e0] bg-white px-3 py-2 text-sm text-[#1b1b18] shadow-[inset_0px_0px_0px_1px_rgba(26,26,0,0.16)] focus:border-[#8B4513] focus:ring-1 focus:ring-[#8B4513] dark:border-[#3E3E3A] dark:bg-[#161615] dark:text-[#FDFDFC]">
+                    </div>
+                    <div class="flex justify-end gap-3 pt-2">
+                        <button type="button" onclick="closeEntryModal()" class="rounded-lg border border-[#e3e3e0] px-4 py-2 text-sm font-medium text-[#706f6c] transition hover:border-[#8B4513] hover:text-[#8B4513] dark:border-[#3E3E3A] dark:text-[#A1A09A]">Annuler</button>
+                        <button type="submit" class="rounded-lg bg-[#8B4513] px-4 py-2 text-sm font-medium text-[#FDFDFC] transition hover:bg-[#A0522D]">Enregistrer</button>
+                    </div>
+                </form>
+            </div>
+        </div>
 
     </div>
 </div>
 
 <script>
 function confirmDeleteSale(id, label) {
-    showConfirmModal('Êtes-vous sûr de vouloir supprimer la vente ' + label + ' ? Les quantités des produits suivis seront remises en stock. Le rapport journalier ne sera pas recalculé.', function() {
+    showConfirmModal('Êtes-vous sûr de vouloir supprimer la vente ' + label + ' ? Les quantités des produits suivis seront remises en stock et le rapport journalier sera ajusté.', function() {
         document.getElementById('delete-sale-id').value = id;
         document.getElementById('delete-sale-form').submit();
     });
 }
+
+function openEntryEdit(type, id, date, amount, label) {
+    document.getElementById('entry-type').value = type;
+    document.getElementById('entry-id').value = id;
+    document.getElementById('entry-date').value = date;
+    document.getElementById('entry-amount').value = amount;
+    document.getElementById('entry-modal-title').textContent = 'Modifier — ' + label;
+    document.getElementById('entry-modal').classList.remove('hidden');
+    document.getElementById('entry-amount').focus();
+}
+
+function closeEntryModal() {
+    document.getElementById('entry-modal').classList.add('hidden');
+}
+
+function confirmDeleteEntry(type, id, description) {
+    showConfirmModal('Êtes-vous sûr de vouloir supprimer ' + description + ' ? L\'écart de caisse sera recalculé.', function() {
+        document.getElementById('delete-entry-type').value = type;
+        document.getElementById('delete-entry-id').value = id;
+        document.getElementById('delete-entry-form').submit();
+    });
+}
+
+document.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape') {
+        closeEntryModal();
+    }
+});
 </script>
 
 <?php require __DIR__ . '/../layout_footer.php'; ?>

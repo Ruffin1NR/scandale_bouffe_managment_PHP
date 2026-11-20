@@ -44,7 +44,8 @@ cd scandale_bouffe_managment_PHP
 4. Pour une base existante sans colonne `track_stock`, exécutez `database/migrate_track_stock.sql`.
 5. Pour une base existante sans table `stock_movements`, exécutez `database/migrate_stock_movements.sql`.
 6. Pour harmoniser les modes de paiement des ventes existantes, exécutez `database/migrate_sale_payment_methods.sql`.
-7. Vérifiez les paramètres de connexion dans `config/db.php` :
+7. Pour lier chaque vente POS à sa contribution au rapport journalier, exécutez `database/migrate_sale_report_contributions.sql`.
+8. Vérifiez les paramètres de connexion dans `config/db.php` :
 
 ```php
 $dbHost = 'localhost';
@@ -56,6 +57,14 @@ $dbPass = '';
 > **Remise à zéro de l'activité** : `database/reset_activity.sql` supprime toutes les ventes,
 > les rapports journaliers, les versements et les mouvements de stock, puis remet les produits
 > suivis à leur stock initial. Ce script est **destructif** : sauvegardez la base avant de l'exécuter.
+
+> **Suppression d'une vente** : depuis `/sales`, la suppression remet le stock des produits suivis
+> et retire la contribution de la vente au rapport journalier (prépayé, trosa, cash, mobile).
+> Les versements, relais et dépenses saisis séparément ne sont pas modifiés.
+
+> **Mouvements de caisse** : `/sales` affiche l'historique des versements, relais et dépenses de la
+> période filtrée. Chaque ligne peut être modifiée (montant, date) ou supprimée ; l'Écart de caisse
+> est recalculé automatiquement.
 
 ### 3. Compiler Tailwind CSS
 

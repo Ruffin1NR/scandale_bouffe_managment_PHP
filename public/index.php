@@ -611,6 +611,12 @@ switch ($page) {
                     if (empty($sale)) {
                         throw new Exception("Vente introuvable.");
                     }
+                    // Contribution de cette vente au rapport journalier (POS uniquement).
+                    // Elle doit être retirée du rapport en même temps que la vente.
+                    $reportContribution = fetchAssoc(
+                        "SELECT user_id, report_date, prepaye, trosa, paiement, nofy FROM sale_report_contributions WHERE sale_id = ?",
+                        [$saleId]
+                    );
                     // Remettre en stock les quantités vendues avant de supprimer la vente,
                     // uniquement pour les produits dont la catégorie est suivie.
                     $soldItems = fetchAllAssoc("
@@ -631,9 +637,36 @@ switch ($page) {
                             addStockMovement($soldProductId, 'in', $soldQuantity, 'sale_delete', 'Suppression vente #' . $saleId, $saleId, $saleUserId);
                         }
                     }
+                    // Reverser la contribution de la vente dans le rapport journalier.
+                    // GREATEST évite un montant négatif si le rapport a été corrigé manuellement.
+                    if (!empty($reportContribution)) {
+                        query(
+                            "UPDATE daily_reports
+                             SET prepaye = GREATEST(prepaye - ?, 0),
+                                 trosa = GREATEST(trosa - ?, 0),
+                                 paiement = GREATEST(paiement - ?, 0),
+                                 nofy = GREATEST(nofy - ?, 0)
+                             WHERE user_id = ? AND report_date = ?",
+                            [
+                                $reportContribution['prepaye'],
+                                $reportContribution['trosa'],
+                                $reportContribution['paiement'],
+                                $reportContribution['nofy'],
+                                $reportContribution['user_id'],
+                                $reportContribution['report_date'],
+                            ]
+                        );
+                        // Si le rapport ne contenait que cette vente, on supprime la ligne vide.
+                        query(
+                            "DELETE FROM daily_reports
+                             WHERE user_id = ? AND report_date = ?
+                               AND prepaye = 0 AND trosa = 0 AND paiement = 0 AND nofy = 0",
+                            [$reportContribution['user_id'], $reportContribution['report_date']]
+                        );
+                    }
                     query("DELETE FROM sales WHERE id = ?", [$saleId]);
                     $pdo->commit();
-                    $_SESSION['success'] = "Vente #$saleId supprimée. Le stock des produits suivis a été réajusté.";
+                    $_SESSION['success'] = "Vente #$saleId supprimée. Le stock des produits suivis a été réajusté et le rapport journalier a été mis à jour.";
                 } catch (Exception $e) {
                     $pdo->rollBack();
                     $_SESSION['error'] = $e->getMessage();
@@ -657,6 +690,63 @@ switch ($page) {
                 query("INSERT INTO daily_reports (user_id, report_date, prepaye, trosa, paiement, nofy, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE prepaye = VALUES(prepaye), trosa = VALUES(trosa), paiement = VALUES(paiement), nofy = VALUES(nofy)", [$_SESSION['user_id'], $reportDate, $prepaye, $trosaVal, $paiementVal, $nofyVal]);
                 header('Content-Type: application/json');
                 echo json_encode(['success' => true, 'message' => 'Rapport enregistré.']);
+                exit;
+            case 'entry-update':
+            case 'entry-delete':
+                if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                    header('Location: ' . url('sales'));
+                    exit;
+                }
+                $entryType = (string)($_POST['type'] ?? '');
+                $entryId = (int)($_POST['id'] ?? 0);
+                $entryTypes = cashEntryTypes();
+                $returnTo = (string)($_POST['return'] ?? 'sales');
+                if (!preg_match('/^sales(\?[A-Za-z0-9_%&=.\-]*)?$/', $returnTo)) {
+                    $returnTo = 'sales';
+                }
+                if ($entryId <= 0 || !isset($entryTypes[$entryType])) {
+                    $_SESSION['error'] = "Mouvement de caisse introuvable.";
+                    header('Location: ' . url($returnTo));
+                    exit;
+                }
+                $entryConfig = $entryTypes[$entryType];
+                $entryTable = $entryConfig['table'];
+                $entryDateColumn = $entryConfig['date_column'];
+                $entryLabel = $entryConfig['label'];
+                $entryAgreement = $entryType === 'depense' ? 'e' : '';
+                $entryExists = fetchAssoc(
+                    "SELECT id FROM {$entryTable} WHERE id = ? AND user_id = ?",
+                    [$entryId, $_SESSION['user_id']]
+                );
+                if (empty($entryExists)) {
+                    $_SESSION['error'] = "Mouvement de caisse introuvable.";
+                    header('Location: ' . url($returnTo));
+                    exit;
+                }
+
+                if ($salesAction === 'entry-delete') {
+                    query("DELETE FROM {$entryTable} WHERE id = ? AND user_id = ?", [$entryId, $_SESSION['user_id']]);
+                    $_SESSION['success'] = $entryLabel . ' supprimé' . $entryAgreement . '.';
+                    header('Location: ' . url($returnTo));
+                    exit;
+                }
+
+                $entryAmount = max(0, (float)($_POST['amount'] ?? 0));
+                $entryDate = normalizeDate($_POST['date'] ?? null);
+                if ($entryAmount <= 0) {
+                    $_SESSION['error'] = "Le montant doit être supérieur à 0.";
+                    header('Location: ' . url($returnTo));
+                    exit;
+                }
+                if ($entryDate > date('Y-m-d')) {
+                    $entryDate = date('Y-m-d');
+                }
+                query(
+                    "UPDATE {$entryTable} SET amount = ?, {$entryDateColumn} = ? WHERE id = ? AND user_id = ?",
+                    [$entryAmount, $entryDate, $entryId, $_SESSION['user_id']]
+                );
+                $_SESSION['success'] = $entryLabel . ' modifié' . $entryAgreement . '.';
+                header('Location: ' . url($returnTo));
                 exit;
             default:
                 require __DIR__ . '/../pages/admin/sales.php';
@@ -857,6 +947,13 @@ switch ($page) {
                     // Ventiler la vente dans le rapport du jour choisi (additif, même date que l'affichage /pos)
                     $reportDate = $saleDate;
                     query("INSERT INTO daily_reports (user_id, report_date, prepaye, trosa, paiement, nofy, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE prepaye = prepaye + VALUES(prepaye), trosa = trosa + VALUES(trosa), paiement = paiement + VALUES(paiement), nofy = nofy + VALUES(nofy)", [$_SESSION['user_id'], $reportDate, $payTotals['prepaye'], $payTotals['trosa'], $payTotals['cash'], $payTotals['mobile']]);
+
+                    // Mémoriser la contribution exacte de cette vente au rapport,
+                    // pour pouvoir la retirer si la vente est supprimée plus tard.
+                    query(
+                        "INSERT INTO sale_report_contributions (sale_id, user_id, report_date, prepaye, trosa, paiement, nofy) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        [$saleId, $_SESSION['user_id'], $reportDate, $payTotals['prepaye'], $payTotals['trosa'], $payTotals['cash'], $payTotals['mobile']]
+                    );
 
                     $pdo->commit();
                     $methodLabel = salePaymentMethodLabel($paymentMethod);
